@@ -6,9 +6,9 @@ Colab o en el computador y producir un informe visual de actividad, Buy/Sell y
 ciclos Hold. Por tanto es inmediato incluso si la descarga on-chain anterior
 tardó una hora.
 
-Para etiquetar Buy/Sell/Hold, genera el precio horario POL/USDC con los swaps
-del propio Parquet. Las últimas 1 h, 4 h y 1 d permanecen pendientes cuando el
-archivo todavía no contiene el cierre posterior necesario.
+Para etiquetar Buy/Sell/Hold, genera el precio POL/USDC a resolución de minuto
+con los swaps del propio Parquet. Las últimas 1 m, 5 m, 15 m y 1 h permanecen
+pendientes cuando el archivo todavía no contiene el precio posterior necesario.
 """
 
 from __future__ import annotations
@@ -29,12 +29,14 @@ from pol_wallet_winners import (
     filtrar_wallets_ganadoras,
     resumen_estados_perfiles,
 )
+from pol_wallet_summary import construir_perfiles_desde_tabla_wallets
 
 
 HORIZONS = {
+    "1m": pd.Timedelta(minutes=1),
+    "5m": pd.Timedelta(minutes=5),
+    "15m": pd.Timedelta(minutes=15),
     "1h": pd.Timedelta(hours=1),
-    "4h": pd.Timedelta(hours=4),
-    "1d": pd.Timedelta(days=1),
 }
 
 
@@ -212,12 +214,14 @@ def construir_ciclos_hold(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
     ).reset_index(drop=True)
 
 
-def construir_precios_horarios_desde_swaps(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
-    """Construye el cierre horario POL/USDC desde los swaps ya descargados.
+def construir_precios_por_minuto_desde_swaps(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
+    """Construye precios observados del pool, sin mirar swaps posteriores.
 
-    Es una alternativa local a Yahoo Finance: el cierre de cada hora es el
-    último precio ejecutado observado en el pool. Se rellenan horas sin swap
-    con el último cierre conocido, nunca con un precio futuro.
+    El índice conserva el instante exacto de cada ejecución. Al etiquetar una
+    decisión se usa el último precio con ``timestamp <= horizonte``. Esto es
+    equivalente a un cierre de minuto para los horizontes cortos, pero evita
+    que el cierre de un minuto incluya un swap ocurrido después del instante
+    objetivo.
     """
     if swaps_logicos.empty:
         return pd.DataFrame(columns=["Close", "source"])
@@ -228,12 +232,16 @@ def construir_precios_horarios_desde_swaps(swaps_logicos: pd.DataFrame) -> pd.Da
     if frame.empty:
         return pd.DataFrame(columns=["Close", "source"])
     frame = frame.sort_values(["timestamp", "hash_tx"]).copy()
-    frame["hour"] = frame["timestamp"].dt.floor("h")
-    close = frame.groupby("hour", sort=True)["precio_ejecutado"].last().rename("Close")
-    close = close.resample("h").last().ffill()
+    close = frame.set_index("timestamp")["precio_ejecutado"].rename("Close")
+    close = close[~close.index.duplicated(keep="last")]
     result = close.to_frame()
-    result["source"] = "POOL_SWAP_CLOSE"
+    result["source"] = "POOL_SWAP_LAST_KNOWN"
     return result
+
+
+def construir_precios_horarios_desde_swaps(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
+    """Alias de compatibilidad; ahora devuelve precios a resolución de minuto."""
+    return construir_precios_por_minuto_desde_swaps(swaps_logicos)
 
 
 def _normalizar_precios(precios: pd.DataFrame) -> pd.Series:
@@ -249,7 +257,13 @@ def _normalizar_precios(precios: pd.DataFrame) -> pd.Series:
         raise ValueError("La tabla de precios debe contener Close o price.")
     values = pd.to_numeric(frame[column], errors="coerce")
     series = pd.Series(values.to_numpy(), index=index, name="price").dropna()
-    return series.groupby(series.index.floor("h")).last().sort_index()
+    return series[~series.index.duplicated(keep="last")].sort_index()
+
+
+def _precio_al_horizonte(prices: pd.Series, forward_time: pd.Timestamp) -> float:
+    """Último precio observado en o antes del horizonte, sin fuga temporal."""
+    observed = prices.loc[prices.index <= forward_time]
+    return float(observed.iloc[-1]) if not observed.empty else np.nan
 
 
 def _etiquetar_decision(
@@ -263,16 +277,16 @@ def _etiquetar_decision(
     prices: pd.Series,
     as_of: pd.Timestamp,
 ) -> dict[str, Any]:
-    forward_time = decision_time.floor("h") + HORIZONS[horizon]
+    forward_time = decision_time + HORIZONS[horizon]
     base = {
         "forward_time": forward_time, "forward_price": np.nan,
         "retorno_bruto": np.nan, "retorno_neto": np.nan, "ganancia_neta_usdc": np.nan,
     }
-    if forward_time > as_of.floor("h"):
+    if forward_time > as_of:
         return {**base, "maturity_status": "PENDING"}
-    if forward_time not in prices.index or not pd.notna(decision_price) or decision_price <= 0:
+    forward_price = _precio_al_horizonte(prices, forward_time)
+    if not pd.notna(forward_price) or not pd.notna(decision_price) or decision_price <= 0:
         return {**base, "maturity_status": "MISSING_PRICE"}
-    forward_price = float(prices.loc[forward_time])
     gross = (
         (forward_price - decision_price) / decision_price
         if action in {"BUY_POL", "HOLD"}
@@ -467,6 +481,7 @@ def crear_figuras(
     swaps_logicos: pd.DataFrame,
     ciclos_hold: pd.DataFrame,
     perfiles: pd.DataFrame,
+    perfiles_tabla_wallets: pd.DataFrame | None = None,
 ) -> dict[str, Any]:
     """Crea vistas de ganadoras y sus rasgos, limitadas a top/bottom 5."""
     try:
@@ -493,7 +508,7 @@ def crear_figuras(
     def decorate(figure: Any) -> Any:
         figure.update_layout(template="plotly_white", legend_title_text="", margin={"t": 90, "l": 70, "r": 30, "b": 60})
         figure.add_annotation(
-            text="Precio forward: cierre horario derivado de swaps del propio Parquet. " + cohort_note,
+            text="Precio forward: último precio del pool conocido al horizonte, sin usar swaps posteriores. " + cohort_note,
             x=0.5, y=1.12, xref="paper", yref="paper", showarrow=False, font={"color": "#475569"},
         )
         return figure
@@ -520,6 +535,41 @@ def crear_figuras(
         )
         ranking.for_each_yaxis(lambda axis: axis.update(autorange="reversed"))
         decorate(ranking)
+
+    if perfiles_tabla_wallets is None or perfiles_tabla_wallets.empty:
+        ranking_tabla = empty(
+            "Preselección por tabla WalletView",
+            "No se recibió la tabla agregada wallet × dirección. "
+            "Pásala mediante tabla_wallets al crear el informe.",
+        )
+    else:
+        selections = []
+        for _, group in perfiles_tabla_wallets.groupby(["accion", "horizonte"], sort=True):
+            selections.append(_top_bottom(group, "pnl_neto_usdc", unique_columns=["wallet", "accion", "horizonte"]))
+        table_data = pd.concat(selections, ignore_index=True) if selections else pd.DataFrame()
+        if table_data.empty:
+            ranking_tabla = empty("Preselección por tabla WalletView", "No hay PnL agregado disponible")
+        else:
+            table_data["perfil"] = (
+                table_data["wallet"].map(_short_wallet) + " · "
+                + table_data["accion"].str.replace("_POL", "", regex=False) + " · "
+                + table_data["horizonte"]
+            )
+            ranking_tabla = px.bar(
+                table_data, x="pnl_neto_usdc", y="perfil", color="estado_resumen", orientation="h",
+                facet_col="grupo_extremo", hover_data=[
+                    "wallet", "direccion", "n_swaps", "gas_usdc", "usdc_neto",
+                    "retorno_neto_agregado",
+                ],
+                title="Tabla WalletView: Top 5 y Bottom 5 por PnL neto, posición y horizonte",
+                labels={"pnl_neto_usdc": "Ganancia neta agregada (USDC)", "perfil": "Wallet · posición · horizonte"},
+            )
+            ranking_tabla.for_each_yaxis(lambda axis: axis.update(autorange="reversed"))
+            ranking_tabla.update_layout(template="plotly_white", legend_title_text="Estado agregado")
+            ranking_tabla.add_annotation(
+                text="candidate_winner es una preselección agregada; winner se confirma con decisiones individuales maduras.",
+                x=0.5, y=1.12, xref="paper", yref="paper", showarrow=False, font={"color": "#475569"},
+            )
 
     activity_by_action = swaps_logicos[swaps_logicos["direccion"].isin(["BUY_POL", "SELL_POL"])].groupby(
         ["wallet", "direccion"], as_index=False
@@ -607,6 +657,7 @@ def crear_figuras(
 
     return {
         "ranking_ganadoras": ranking,
+        "ranking_walletview": ranking_tabla,
         "actividad_buy_sell": activity,
         "volumen_buy_sell": volume,
         "duracion_hold": hold_duration,
@@ -654,12 +705,15 @@ def generar_informe_desde_parquet(
     output_dir: str | Path = "data/derived/parquet_wallet_report",
     min_decisiones: int = 3,
     export_png: bool = False,
+    tabla_wallets: pd.DataFrame | str | Path | None = None,
 ) -> Path:
     """Genera el informe sin hacer ninguna llamada de red.
 
     ``parquet_path`` puede ser el archivo descargado o una carpeta que contenga
-    un único ``swaps_*.parquet``. El resultado contiene perfiles Buy/Sell/Hold
-    y un informe HTML. No hace ninguna llamada de red.
+    un único ``swaps_*.parquet``. ``tabla_wallets`` es opcional: recibe
+    ``WalletView.df`` o su Parquet y añade el ranking agregado por posición y
+    horizonte. El resultado contiene perfiles Buy/Sell/Hold y un informe HTML.
+    No hace ninguna llamada de red.
     """
     source = _resolve_parquet(parquet_path)
     raw = pd.read_parquet(source)
@@ -667,26 +721,41 @@ def generar_informe_desde_parquet(
     cycles = construir_ciclos_hold(logical)
     summary = construir_resumen_wallets(logical, cycles)
     as_of = logical["timestamp"].max() if not logical.empty else pd.Timestamp.now(tz="UTC")
-    prices = construir_precios_horarios_desde_swaps(logical)
+    prices = construir_precios_por_minuto_desde_swaps(logical)
     ledger = construir_ledger_decisiones(logical, cycles, prices, as_of=as_of)
     profiles = construir_perfiles_wallet(
         ledger, logical, cycles, min_decisiones=min_decisiones,
     )
+    if tabla_wallets is None:
+        perfiles_tabla_wallets = pd.DataFrame()
+        tabla_wallets_source = None
+    else:
+        if isinstance(tabla_wallets, pd.DataFrame):
+            wallet_table = tabla_wallets.copy()
+            tabla_wallets_source = "DataFrame proporcionado en memoria"
+        else:
+            wallet_table_path = _resolve_parquet(tabla_wallets)
+            wallet_table = pd.read_parquet(wallet_table_path)
+            tabla_wallets_source = str(wallet_table_path)
+        perfiles_tabla_wallets = construir_perfiles_desde_tabla_wallets(
+            wallet_table, min_swaps=min_decisiones,
+        )
     root = _new_snapshot_dir(output_dir, _as_utc(as_of))
 
     logical.to_parquet(root / "swaps_logicos.parquet", index=False)
     cycles.to_parquet(root / "ciclos_hold.parquet", index=False)
     summary.to_parquet(root / "resumen_wallets.parquet", index=False)
-    prices.reset_index(names="timestamp").to_parquet(root / "precios_horarios_pool.parquet", index=False)
+    prices.reset_index(names="timestamp").to_parquet(root / "precios_minuto_pool.parquet", index=False)
     ledger.to_parquet(root / "ledger_decisiones.parquet", index=False)
     profiles.to_parquet(root / "perfiles_wallet.parquet", index=False)
+    perfiles_tabla_wallets.to_parquet(root / "perfiles_tabla_wallets.parquet", index=False)
 
-    figures = crear_figuras(summary, logical, cycles, profiles)
+    figures = crear_figuras(summary, logical, cycles, profiles, perfiles_tabla_wallets)
     winner_count = int((profiles["winner_status"] == "winner").sum()) if not profiles.empty else 0
     sections = [
         "<h1>Informe local de wallets POL</h1>",
         "<p>Fuente: Parquet ya descargado. Este informe no consulta Alchemy ni Yahoo Finance. "
-        "El precio forward es el cierre horario de los swaps del propio pool. "
+        "El precio forward es el último precio del propio pool conocido al horizonte. "
         f"Perfiles ganadores encontrados: <strong>{winner_count}</strong>.</p>",
     ]
     png_errors: list[dict[str, str]] = []
@@ -706,13 +775,16 @@ def generar_informe_desde_parquet(
     manifest = {
         "schema_version": 1,
         "source": "Parquet local (sin llamadas de red)",
-        "price_source": "Cierre horario del pool derivado de precio_ejecutado",
+        "price_source": "Último precio del pool en o antes de cada horizonte, derivado de precio_ejecutado",
         "source_parquet": {"path": str(source), "sha256": _sha256_file(source), "rows": int(len(raw))},
+        "wallet_summary_source": tabla_wallets_source,
+        "horizons": list(HORIZONS),
         "as_of_utc": _as_utc(as_of).isoformat(),
         "limitations": [
-            "El precio forward procede de cierres del pool, no de una fuente de mercado independiente.",
+            "El precio forward procede del último swap del pool observado al horizonte, no de una fuente de mercado independiente.",
             "Las últimas observaciones quedan PENDING si no hay cierre posterior en el Parquet.",
             "HOLD sólo representa ciclos FIFO compra->venta completamente observados.",
+            "La preselección desde WalletView es agregada y no sustituye la definición final de winner.",
         ],
         "winner_definition": {
             "min_decisiones_maduras": min_decisiones,
@@ -723,7 +795,7 @@ def generar_informe_desde_parquet(
         "rows": {
             "swaps_logicos": int(len(logical)), "ciclos_hold": int(len(cycles)),
             "ledger_decisiones": int(len(ledger)), "perfiles_wallet": int(len(profiles)),
-            "resumen_wallets": int(len(summary)),
+            "resumen_wallets": int(len(summary)), "perfiles_tabla_wallets": int(len(perfiles_tabla_wallets)),
         },
         "png_export_errors": png_errors,
     }

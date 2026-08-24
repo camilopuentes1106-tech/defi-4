@@ -2,8 +2,8 @@
 main.py — Configuración y ejecución del pipeline POL/USDC (Uniswap V3, Polygon).
 """
 
-from swap import SwapPipeline
-from wallet import WalletView
+from utils.swap import SwapPipeline
+from utils.wallet import WalletView
 
 # ──────────────────────────────────────────────────────────────────────────────
 # CONFIG
@@ -21,6 +21,7 @@ NOMBRE_T1    = "usdc"
 HORAS        = 24
 HORIZONTES   = ["1m", "5m", "15m", "1h"]
 CACHE_PATH   = "cache/swaps_pol_usdc_24h.parquet"
+WALLETS_PATH = "cache/wallets_pol_usdc_24h.parquet"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # PIPELINE
@@ -53,9 +54,18 @@ print(swaps.head().to_string())
 
 wallets = WalletView(pipeline, horizontes=HORIZONTES)
 wallets.construir()
+wallets.df.to_parquet(WALLETS_PATH, index=False)
 
 print("\n── VISTA WALLETS ──")
 print(wallets.df.head(20).to_string())
 
 print("\n── TOP 10 BUYERS (1h) ──")
 print(wallets.top_wallets(horizonte="1h", n=10, direccion="Buy").to_string())
+
+perfiles_resumen = wallets.perfiles_por_horizonte(min_swaps=3)
+print("\n── CANDIDATAS POR POSICIÓN Y HORIZONTE ──")
+print(
+    perfiles_resumen[perfiles_resumen["estado_resumen"] == "candidate_winner"]
+    .to_string(index=False)
+)
+print(f"\n[cache] tabla WalletView guardada → {WALLETS_PATH}")

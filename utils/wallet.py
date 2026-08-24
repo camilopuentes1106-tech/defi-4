@@ -159,3 +159,25 @@ class WalletView:
             df.nlargest(n, col)
             .reset_index(drop=True)
         )
+
+    def perfiles_por_horizonte(self, min_swaps: int = 3) -> pd.DataFrame:
+        """Devuelve candidatas Buy/Sell para cada horizonte de ``WalletView``.
+
+        La salida conserva una fila por wallet, posición y horizonte.  Una
+        ``candidate_winner`` tiene al menos ``min_swaps`` y PnL neto agregado
+        positivo. La confirmación como ``winner`` requiere el ledger detallado
+        porque sólo allí se conocen los aciertos y pérdidas por operación.
+        """
+        if self.df.empty:
+            raise ValueError("Ejecutá construir() primero.")
+        from pol_wallet_summary import DEFAULT_HORIZONS, construir_perfiles_desde_tabla_wallets
+
+        horizontes = tuple(h for h in self._horizontes if h in DEFAULT_HORIZONS)
+        if not horizontes:
+            horizontes = DEFAULT_HORIZONS
+
+        return construir_perfiles_desde_tabla_wallets(
+            self.df,
+            horizontes=horizontes,
+            min_swaps=min_swaps,
+        )

@@ -107,20 +107,20 @@ class LedgerAndProfileTests(unittest.TestCase):
             index=[T0, T0 + pd.Timedelta(hours=1), T0 + pd.Timedelta(hours=4), T0 + pd.Timedelta(hours=5)],
         )
 
-    def test_forward_signs_hold_eligibility_and_pending_daily_label(self):
+    def test_forward_signs_hold_eligibility_and_pending_short_horizons(self):
         ledger = construir_ledger_decisiones(
             self.logical, self.cycles, self.prices, as_of=T0 + pd.Timedelta(hours=5)
         )
         buy_1h = ledger[(ledger["accion"] == "BUY_POL") & (ledger["horizonte"] == "1h")].iloc[0]
         sell_1h = ledger[(ledger["accion"] == "SELL_POL") & (ledger["horizonte"] == "1h")].iloc[0]
-        hold_4h = ledger[(ledger["accion"] == "HOLD") & (ledger["horizonte"] == "4h")].iloc[0]
+        hold_1h = ledger[(ledger["accion"] == "HOLD") & (ledger["horizonte"] == "1h")].iloc[0]
 
         self.assertEqual(buy_1h["maturity_status"], "COMPLETED")
         self.assertAlmostEqual(buy_1h["retorno_neto"], 0.19)
         self.assertEqual(sell_1h["maturity_status"], "PENDING")
-        self.assertAlmostEqual(hold_4h["retorno_neto"], 0.3)
-        self.assertFalse(((ledger["accion"] == "HOLD") & (ledger["horizonte"] == "1d")).any())
-        self.assertTrue((ledger[ledger["horizonte"] == "1d"]["maturity_status"] == "PENDING").all())
+        self.assertAlmostEqual(hold_1h["retorno_neto"], 0.2)
+        self.assertEqual(set(ledger["horizonte"]), {"1m", "5m", "15m", "1h"})
+        self.assertTrue((ledger[ledger["accion"] == "SELL_POL"]["maturity_status"] == "PENDING").all())
 
     def test_winner_requires_three_completed_decisions_and_state_excludes_future_trade(self):
         completed = pd.DataFrame([
@@ -146,7 +146,7 @@ class LedgerAndProfileTests(unittest.TestCase):
             "direccion": "BUY_POL", "pol_cantidad": 2.0, "precio_ejecutado": 1.0,
             "gas_usdc": 0.0, "pol_delta": 2.0, "notional_usdc": 2.0,
         }])], ignore_index=True)
-        state = construir_estado_rl(future, self.cycles, profiles, as_of=T0 + pd.Timedelta(hours=1), ventanas=["4h"])
+        state = construir_estado_rl(future, self.cycles, profiles, as_of=T0 + pd.Timedelta(minutes=10), ventanas=["15m"])
         self.assertEqual(state.iloc[0]["n_swaps"], 1)
 
     @patch("yfinance.download")
@@ -157,6 +157,7 @@ class LedgerAndProfileTests(unittest.TestCase):
 
         self.assertEqual(download_mock.call_args_list[0].args[0], "POL-USD")
         self.assertEqual(download_mock.call_args_list[1].args[0], "MATIC-USD")
+        self.assertEqual(download_mock.call_args_list[0].kwargs["interval"], "1m")
         self.assertEqual(prices["source_ticker"].iloc[0], "MATIC-USD")
 
 

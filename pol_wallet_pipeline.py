@@ -66,13 +66,15 @@ def ejecutar_desde_parquet(
     output_dir: str | Path = "data/derived/parquet_wallet_report",
     min_decisiones: int = 3,
     export_png: bool = False,
+    tabla_wallets: pd.DataFrame | str | Path | None = None,
 ) -> PipelineResult:
-    """Ruta recomendada: analiza un Parquet existente sin pedir datos a la red."""
+    """Analiza un Parquet sin red y admite la tabla agregada WalletView."""
     root = generar_informe_desde_parquet(
         parquet_path=parquet_path,
         output_dir=output_dir,
         min_decisiones=min_decisiones,
         export_png=export_png,
+        tabla_wallets=tabla_wallets,
     )
     return _cargar_resultado(root)
 
@@ -131,6 +133,10 @@ def construir_parser() -> argparse.ArgumentParser:
     parquet.add_argument("--parquet", required=True, help="Archivo swaps_*.parquet o carpeta que lo contiene.")
     parquet.add_argument("--output-dir", default="data/derived/parquet_wallet_report")
     parquet.add_argument("--min-decisiones", type=int, default=3)
+    parquet.add_argument(
+        "--tabla-wallets", default=None,
+        help="Parquet producido desde WalletView.df; añade ranking por posición y horizonte.",
+    )
     parquet.add_argument("--png", action="store_true", help="Exporta PNG además del HTML.")
 
     cache = commands.add_parser("cache", help="Reconstruye desde cachés Alchemy existentes; no descarga swaps.")
@@ -175,6 +181,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             output_dir=args.output_dir,
             min_decisiones=args.min_decisiones,
             export_png=args.png,
+            tabla_wallets=args.tabla_wallets,
         )
     elif args.modo == "cache":
         result = ejecutar_desde_cache_alchemy(

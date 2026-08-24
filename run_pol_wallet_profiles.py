@@ -4,7 +4,8 @@ Ejemplo:
     python run_pol_wallet_profiles.py --parquet /content/swaps_24h.parquet --output-dir /content/informes_pol
 
 No descarga bloques ni consulta servicios externos. Requiere que estén en la
-misma carpeta ``pol_wallet_report_from_parquet.py`` y ``pol_wallet_winners.py``.
+misma carpeta ``pol_wallet_report_from_parquet.py``, ``pol_wallet_winners.py``
+y ``pol_wallet_summary.py``.
 """
 
 from __future__ import annotations
@@ -39,6 +40,10 @@ def construir_parser() -> argparse.ArgumentParser:
         "--png", action="store_true",
         help="Exporta también PNG; requiere kaleido. El HTML siempre se crea.",
     )
+    parser.add_argument(
+        "--tabla-wallets", default=None,
+        help="Parquet de WalletView.df para el ranking agregado Buy/Sell por horizonte.",
+    )
     return parser
 
 
@@ -48,6 +53,7 @@ def ejecutar_flujo(
     output_dir: str | Path,
     min_decisiones: int = 3,
     export_png: bool = False,
+    tabla_wallets: str | Path | None = None,
 ) -> tuple[Path, pd.DataFrame]:
     """Ejecuta el informe y devuelve su carpeta y tabla de perfiles ganadores."""
     result = generar_informe_desde_parquet(
@@ -55,6 +61,7 @@ def ejecutar_flujo(
         output_dir=output_dir,
         min_decisiones=min_decisiones,
         export_png=export_png,
+        tabla_wallets=tabla_wallets,
     )
     profiles = pd.read_parquet(result / "perfiles_wallet.parquet")
     return result, filtrar_wallets_ganadoras(profiles)
@@ -67,6 +74,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         output_dir=args.output_dir,
         min_decisiones=args.min_decisiones,
         export_png=args.png,
+        tabla_wallets=args.tabla_wallets,
     )
     profiles = pd.read_parquet(result / "perfiles_wallet.parquet")
     states = resumen_estados_perfiles(profiles)

@@ -40,11 +40,12 @@ FALLBACK_PRICE_TICKERS = ("MATIC-USD",)
 DEFAULT_POOL_ADDRESS = "0xA374094527e1673A86dE625aa59517c5dE346d32"
 DEFAULT_LOOKBACK_HOURS = 24.0
 DEFAULT_BLOCK_SPAN = 10  # Límite conservador de eth_getLogs en Alchemy Free.
-DEFAULT_HORIZONS = ("1h", "4h", "1d")
+DEFAULT_HORIZONS = ("1m", "5m", "15m", "1h")
 HORIZONS: Mapping[str, pd.Timedelta] = {
+    "1m": pd.Timedelta(minutes=1),
+    "5m": pd.Timedelta(minutes=5),
+    "15m": pd.Timedelta(minutes=15),
     "1h": pd.Timedelta(hours=1),
-    "4h": pd.Timedelta(hours=4),
-    "1d": pd.Timedelta(days=1),
 }
 POOL_ABI_SWAP = [{
     "anonymous": False,
@@ -405,8 +406,34 @@ def construir_ciclos_hold(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(cycles, columns=columns).sort_values(["wallet", "opened_at", "closed_at"], na_position="last").reset_index(drop=True)
 
 
+def construir_precios_por_minuto_desde_swaps(swaps_logicos: pd.DataFrame) -> pd.DataFrame:
+    """Devuelve el último precio del pool observado en cada instante de swap.
+
+    El ledger selecciona el último precio con timestamp igual o anterior al
+    horizonte. Así los retornos de 1m/5m/15m no usan un swap futuro dentro del
+    mismo minuto.
+    """
+    if swaps_logicos.empty:
+        return pd.DataFrame(columns=["Close", "source"])
+    frame = swaps_logicos.copy()
+    frame["timestamp"] = pd.to_datetime(frame["timestamp"], utc=True, errors="coerce")
+    frame["precio_ejecutado"] = pd.to_numeric(frame["precio_ejecutado"], errors="coerce")
+    frame = frame[
+        frame["timestamp"].notna()
+        & (frame["precio_ejecutado"] > 0)
+        & frame["direccion"].isin(["BUY_POL", "SELL_POL"])
+    ]
+    if frame.empty:
+        return pd.DataFrame(columns=["Close", "source"])
+    frame = frame.sort_values(["timestamp", "hash_tx"])
+    close = frame.set_index("timestamp")["precio_ejecutado"].rename("Close")
+    result = close[~close.index.duplicated(keep="last")].to_frame()
+    result["source"] = "POOL_SWAP_LAST_KNOWN"
+    return result
+
+
 def _normalizar_precios(precios: pd.DataFrame) -> pd.Series:
-    """Normaliza Close de yfinance o una tabla timestamp/price al horario UTC."""
+    """Normaliza precios UTC y conserva la resolución original (minuto)."""
     if precios.empty:
         return pd.Series(dtype=float, name="price")
     frame = precios.copy()
@@ -417,7 +444,13 @@ def _normalizar_precios(precios: pd.DataFrame) -> pd.Series:
         index = pd.to_datetime(frame.index, utc=True)
         values = frame["price"] if "price" in frame.columns else frame["Close"]
     series = pd.Series(pd.to_numeric(values, errors="coerce").to_numpy(), index=index, name="price").dropna()
-    return series.groupby(series.index.floor("h")).last().sort_index()
+    return series[~series.index.duplicated(keep="last")].sort_index()
+
+
+def _precio_al_horizonte(prices: pd.Series, target: pd.Timestamp) -> float:
+    """Obtiene el último precio conocido hasta ``target`` sin fuga temporal."""
+    observed = prices.loc[prices.index <= target]
+    return float(observed.iloc[-1]) if not observed.empty else np.nan
 
 
 def descargar_precios_horarios(
@@ -427,7 +460,7 @@ def descargar_precios_horarios(
     ticker: str = TICKER_POL,
     fallback_tickers: Iterable[str] = FALLBACK_PRICE_TICKERS,
 ) -> pd.DataFrame:
-    """Obtiene velas horarias conocidas al corte; nunca solicita precios futuros.
+    """Obtiene velas de un minuto conocidas al corte; nunca pide el futuro.
 
     Yahoo no siempre publica el ticker ``POL-USD`` ni velas intradía para él.
     Si no hay datos se intenta ``MATIC-USD`` como proxy histórico 1:1 de POL.
@@ -444,14 +477,14 @@ def descargar_precios_horarios(
     for candidate in candidates:
         try:
             candles = yf.download(
-                candidate, start=start.to_pydatetime(), end=cutoff.to_pydatetime(), interval="1h",
+                candidate, start=start.to_pydatetime(), end=cutoff.to_pydatetime(), interval="1m",
                 progress=False, auto_adjust=True, threads=False,
             )
         except Exception as exc:  # yfinance puede fallar por ticker, rate limit o red.
             print(f"[precio] Yahoo no respondió para {candidate}: {exc}")
             continue
         if candles is None or candles.empty:
-            print(f"[precio] sin velas 1h para {candidate}; probando el siguiente ticker.")
+            print(f"[precio] sin velas 1m para {candidate}; probando el siguiente ticker.")
             continue
         if isinstance(candles.columns, pd.MultiIndex):
             candles.columns = candles.columns.get_level_values(0)
@@ -466,6 +499,13 @@ def descargar_precios_horarios(
     return pd.DataFrame(columns=["Close", "source_ticker"])
 
 
+def descargar_precios_minuto(
+    **kwargs: Any,
+) -> pd.DataFrame:
+    """Nombre recomendado para velas de 1m; conserva el alias histórico."""
+    return descargar_precios_horarios(**kwargs)
+
+
 def _label_row(
     *,
     action: str,
@@ -478,7 +518,7 @@ def _label_row(
     cutoff: pd.Timestamp,
 ) -> dict[str, Any]:
     delta = HORIZONS[horizon]
-    target = decision_time.floor("h") + delta
+    target = decision_time + delta
     base = {
         "horizonte": horizon,
         "forward_time": target,
@@ -487,11 +527,11 @@ def _label_row(
         "retorno_neto": np.nan,
         "ganancia_neta_usdc": np.nan,
     }
-    if target > cutoff.floor("h"):
+    if target > cutoff:
         return {**base, "maturity_status": "PENDING"}
-    if target not in prices.index or not pd.notna(decision_price) or decision_price <= 0:
+    forward_price = _precio_al_horizonte(prices, target)
+    if not pd.notna(forward_price) or not pd.notna(decision_price) or decision_price <= 0:
         return {**base, "maturity_status": "MISSING_PRICE"}
-    forward_price = float(prices.loc[target])
     if action == "BUY_POL":
         gross = (forward_price - decision_price) / decision_price
     elif action == "SELL_POL":
@@ -652,7 +692,7 @@ def construir_estado_rl(
     cutoff = _as_utc(as_of)
     windows = tuple(ventanas)
     if set(windows).difference(HORIZONS):
-        raise ValueError("ventanas debe contener sólo 1h, 4h y/o 1d.")
+        raise ValueError("ventanas debe contener sólo 1m, 5m, 15m y/o 1h.")
     active = swaps_logicos[swaps_logicos["timestamp"] <= cutoff].copy() if not swaps_logicos.empty else swaps_logicos
     wallets = sorted(set(active.get("wallet", pd.Series(dtype=str)).dropna()) | set(perfiles.get("wallet", pd.Series(dtype=str)).dropna()))
     records: list[dict[str, Any]] = []
@@ -895,7 +935,7 @@ def exportar_snapshot_derivado(
         sources.append({"path": str(path), "sha256": _sha256_file(path) if path.is_file() else None})
     manifest = {
         "schema_version": 1,
-        "source": "Alchemy + yfinance",
+        "source": "Alchemy + precio del pool (Yahoo Finance sólo como fallback)",
         "as_of_utc": cutoff.isoformat(),
         "lookback_hours": lookback_hours,
         "horizons": list(DEFAULT_HORIZONS),
@@ -924,7 +964,7 @@ def guardar_cache_swaps(frame: pd.DataFrame, cache_dir: str | Path, as_of: datet
 
 
 def guardar_cache_precios(frame: pd.DataFrame, cache_dir: str | Path, as_of: datetime | pd.Timestamp | str | None = None) -> Path:
-    """Guarda precios horarios solapados para cerrar etiquetas en ejecuciones posteriores."""
+    """Guarda precios de minuto solapados para cerrar etiquetas posteriores."""
     cutoff = _as_utc(as_of)
     path = Path(cache_dir) / f"prices_{cutoff.strftime('%Y%m%dT%H%M%SZ')}.parquet"
     if path.exists():
@@ -949,7 +989,7 @@ def cargar_historial_swaps(cache_dir: str | Path) -> tuple[pd.DataFrame, list[Pa
 
 
 def cargar_historial_precios(cache_dir: str | Path) -> tuple[pd.DataFrame, list[Path]]:
-    """Une velas horarias de snapshots y conserva la última versión de cada hora."""
+    """Une velas de minuto de snapshots y conserva la última versión."""
     paths = sorted(Path(cache_dir).glob("prices_*.parquet"))
     if not paths:
         return pd.DataFrame(columns=["Close"]), []
@@ -982,13 +1022,18 @@ def reconstruir_perfiles_desde_cache(
             f"No hay snapshots swaps_*.parquet en {Path(raw_cache_dir)}; "
             "no es posible reconstruir sin volver a descargar Alchemy."
         )
-    if actualizar_precios:
-        current_prices = descargar_precios_horarios(as_of=cutoff, lookback_hours=lookback_hours)
-        price_path = Path(raw_cache_dir) / f"prices_{cutoff.strftime('%Y%m%dT%H%M%SZ')}.parquet"
-        if not price_path.exists():
-            guardar_cache_precios(current_prices, raw_cache_dir, cutoff)
-    prices, price_paths = cargar_historial_precios(raw_cache_dir)
     logical = canonicalizar_swaps_logicos(historical)
+    pool_prices = construir_precios_por_minuto_desde_swaps(logical)
+    price_paths: list[Path] = []
+    if pool_prices.empty:
+        if actualizar_precios:
+            current_prices = descargar_precios_minuto(as_of=cutoff, lookback_hours=lookback_hours)
+            price_path = Path(raw_cache_dir) / f"prices_{cutoff.strftime('%Y%m%dT%H%M%SZ')}.parquet"
+            if not price_path.exists():
+                guardar_cache_precios(current_prices, raw_cache_dir, cutoff)
+        prices, price_paths = cargar_historial_precios(raw_cache_dir)
+    else:
+        prices = pool_prices
     cycles = construir_ciclos_hold(logical)
     ledger = construir_ledger_decisiones(logical, cycles, prices, as_of=cutoff)
     profiles = construir_perfiles_wallet(ledger, logical, cycles)
@@ -1022,16 +1067,23 @@ def ejecutar_pipeline_perfiles(
     )
     current = construir_tabla_swaps(w3, events, verbose=verbose)
     raw_path = guardar_cache_swaps(current, raw_cache_dir, cutoff)
-    current_prices = descargar_precios_horarios(as_of=cutoff, lookback_hours=lookback_hours)
-    price_path = guardar_cache_precios(current_prices, raw_cache_dir, cutoff)
     historical, source_paths = cargar_historial_swaps(raw_cache_dir)
-    prices, price_paths = cargar_historial_precios(raw_cache_dir)
     logical = canonicalizar_swaps_logicos(historical)
+    pool_prices = construir_precios_por_minuto_desde_swaps(logical)
+    price_paths: list[Path] = []
+    if pool_prices.empty:
+        current_prices = descargar_precios_minuto(as_of=cutoff, lookback_hours=lookback_hours)
+        price_path = guardar_cache_precios(current_prices, raw_cache_dir, cutoff)
+        prices, price_paths = cargar_historial_precios(raw_cache_dir)
+        extra_price_paths: list[Path] = [price_path]
+    else:
+        prices = pool_prices
+        extra_price_paths = []
     cycles = construir_ciclos_hold(logical)
     ledger = construir_ledger_decisiones(logical, cycles, prices, as_of=cutoff)
     profiles = construir_perfiles_wallet(ledger, logical, cycles)
     state = construir_estado_rl(logical, cycles, profiles, as_of=cutoff)
-    source_paths = list(dict.fromkeys([*source_paths, *price_paths, raw_path, price_path]))
+    source_paths = list(dict.fromkeys([*source_paths, *price_paths, raw_path, *extra_price_paths]))
     return exportar_snapshot_derivado(
         swaps_logicos=logical, ciclos_hold=cycles, ledger=ledger, perfiles=profiles,
         estado_rl=state, source_paths=source_paths, as_of=cutoff, output_dir=output_dir,
