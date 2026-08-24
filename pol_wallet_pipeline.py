@@ -11,6 +11,9 @@ Modos de uso:
     # Reconstruye un reporte desde snapshots crudos de Alchemy ya guardados.
     python pol_wallet_pipeline.py cache --raw-cache-dir data/raw/alchemy
 
+    # Construye estados, transiciones y política Bellman sin red.
+    python pol_wallet_pipeline.py rl --snapshot-dir informes_pol/snapshot_...
+
 La lógica de perfil, selección de ganadoras y gráficas permanece en los
 módulos especializados. Este archivo sólo coordina el flujo y muestra el
 resultado final de forma uniforme.
@@ -34,6 +37,8 @@ from pol_alchemy_wallet_profiles import (
 )
 from pol_wallet_report_from_parquet import generar_informe_desde_parquet
 from pol_wallet_winners import filtrar_wallets_ganadoras, resumen_estados_perfiles
+from pol_rl_pipeline import RLPipelineResult, ejecutar_rl_desde_snapshot
+from pol_rl_wallet_signal import CONSISTENCY_THRESHOLD_RL
 
 
 @dataclass(frozen=True)
@@ -125,6 +130,24 @@ def ejecutar_desde_alchemy(
     return _cargar_resultado(root)
 
 
+def ejecutar_agente_bellman_desde_snapshot(
+    *,
+    snapshot_dir: str | Path,
+    output_dir: str | Path = "data/derived/pol_rl_bellman",
+    consistency_threshold: float = CONSISTENCY_THRESHOLD_RL,
+    horizon: int = 24,
+    gamma: float = 0.99,
+) -> RLPipelineResult:
+    """Construye y resuelve el MDP desde perfiles ya generados, sin red."""
+    return ejecutar_rl_desde_snapshot(
+        snapshot_dir=snapshot_dir,
+        output_dir=output_dir,
+        consistency_threshold=consistency_threshold,
+        horizon=horizon,
+        gamma=gamma,
+    )
+
+
 def construir_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Pipeline unificado de perfiles de wallets POL.")
     commands = parser.add_subparsers(dest="modo", required=True)
@@ -156,6 +179,13 @@ def construir_parser() -> argparse.ArgumentParser:
     alchemy.add_argument("--output-dir", default="data/derived/alchemy_wallet_profiles")
     alchemy.add_argument("--block-span", type=int, default=10)
     alchemy.add_argument("--pause-seconds", type=float, default=0.05)
+
+    rl = commands.add_parser("rl", help="Construye el MDP/Bellman desde un snapshot existente; no usa red.")
+    rl.add_argument("--snapshot-dir", required=True, help="Snapshot con perfiles_wallet, swaps_logicos y ledger_decisiones.")
+    rl.add_argument("--output-dir", default="data/derived/pol_rl_bellman")
+    rl.add_argument("--consistency-threshold", type=float, default=CONSISTENCY_THRESHOLD_RL)
+    rl.add_argument("--horizon", type=int, default=24, help="Número de decisiones horarias de Bellman.")
+    rl.add_argument("--gamma", type=float, default=0.99)
     return parser
 
 
@@ -173,8 +203,30 @@ def imprimir_resultado(result: PipelineResult) -> None:
     print(result.ganadoras[columns].to_string(index=False))
 
 
+def imprimir_resultado_rl(result: RLPipelineResult) -> None:
+    """Resumen breve del MDP generado para ejecución por consola."""
+    print(f"\nArtefactos RL: {result.output_dir}")
+    print(f"Wallets dirigidas 1h: {result.wallets_dirigidas['wallet'].nunique()}")
+    print(f"Observaciones horarias: {len(result.observaciones)}")
+    print("Señales: " + ", ".join(
+        f"{signal}={count}" for signal, count in result.observaciones["senal_wallets"].value_counts().items()
+    ))
+    if not result.replay.empty:
+        print(f"Riqueza final del replay histórico (base 100): {result.replay['wealth'].iloc[-1]:.4f}")
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = construir_parser().parse_args(argv)
+    if args.modo == "rl":
+        rl_result = ejecutar_agente_bellman_desde_snapshot(
+            snapshot_dir=args.snapshot_dir,
+            output_dir=args.output_dir,
+            consistency_threshold=args.consistency_threshold,
+            horizon=args.horizon,
+            gamma=args.gamma,
+        )
+        imprimir_resultado_rl(rl_result)
+        return 0
     if args.modo == "parquet":
         result = ejecutar_desde_parquet(
             parquet_path=args.parquet,

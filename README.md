@@ -117,6 +117,50 @@ Cada modo exporta el HTML, los Parquet derivados y una tabla final con las
 wallets ganadoras. El modo `parquet` es el más rápido para colaborar porque
 no vuelve a descargar la cadena.
 
+## MDP/Bellman guiado por wallets ganadoras de 1 h
+
+La siguiente fase no consulta Alchemy ni vuelve a generar el informe. Toma un
+snapshot existente de `informes_pol/` y construye el MDP que se explicará en
+la guía: estados horarios, transiciones, recompensa, política Bellman y
+replay histórico.
+
+La cohorte se calcula con
+`calcular_wallets_ganadoras_1h_consistentes(perfiles, consistency_threshold=0.80)`.
+Sólo incluye perfiles `winner` de **1 h** con `consistency_score >= 0.80`.
+En cada corte horario, no obstante, la señal se vuelve a calcular usando sólo
+las decisiones que ya estaban maduras en ese instante; así no se filtra futuro.
+
+```powershell
+& .\.venv\Scripts\python.exe .\pol_wallet_pipeline.py rl `
+  --snapshot-dir .\informes_pol\snapshot_20260823T014719Z_08 `
+  --output-dir .\informes_rl `
+  --consistency-threshold 0.80 `
+  --horizon 24 `
+  --gamma 0.99
+```
+
+El resultado contiene:
+
+- `wallets_dirigidas_1h.parquet`: cohorte de perfiles ganadores Buy/Sell/Hold.
+- `observaciones_rl_1h.parquet`: estado causal por hora.
+- `verificacion_transiciones.parquet`: comprobación de que cada `P(s'|s,a)` válida suma 1.
+- `politica_bellman.parquet`, `replay_historico.parquet` y `simulacion_mdp.parquet`.
+- `manifest.json`: parámetros, hashes y fuentes para reproducir la corrida.
+
+Para una explicación interactiva de la guía abre
+`Guia_RL_Bellman_POL.ipynb` desde la raíz del repositorio. El cuaderno no
+modifica `Defi_IV.ipynb` y usa el mismo snapshot en disco.
+
+La recompensa sigue siendo financiera: retorno de la posición siguiente menos
+gas. Las wallets sólo añaden un bonus prudente si su dirección dominante y la
+ventaja financiera realizada coinciden:
+
+`R_final = R_base + 0.25 × confianza_wallets × ventaja_realizada`.
+
+Con 24 horas de datos este resultado es una simulación pedagógica e in-sample,
+no evidencia de rentabilidad fuera de muestra. Para evaluar la política hay
+que acumular snapshots y separar entrenamiento, validación y prueba temporal.
+
 ## Ejecución con Alchemy
 
 1. Instalar dependencias en el entorno virtual:
