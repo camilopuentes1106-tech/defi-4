@@ -1,7 +1,10 @@
 # Datos descargados y credenciales: son reproducibles pero no se versionan.
 data/
+cache/
 .env
 .venv/
 __pycache__/
+.ipynb_checkpoints/
+*.py[cod]
 .pytest_cache/
 *.partial
