@@ -61,6 +61,27 @@ En Colab sube `run_pol_wallet_profiles.py`, `pol_wallet_report_from_parquet.py` 
 !python /content/run_pol_wallet_profiles.py --parquet /content/swaps_24h.parquet --output-dir /content/informes_pol
 ```
 
+## Pipeline unificado
+
+`pol_wallet_pipeline.py` coordina los módulos sin duplicar la lógica de
+wallets ganadoras. Tiene tres modos:
+
+```powershell
+# Recomendado: usa un Parquet existente, sin red ni Alchemy.
+python .\pol_wallet_pipeline.py parquet --parquet .\cache\swaps_24h.parquet
+
+# Reconstruye desde snapshots ya descargados; no consulta bloques nuevos.
+python .\pol_wallet_pipeline.py cache --raw-cache-dir .\data\raw\alchemy
+
+# Sólo para una nueva extracción limitada con Alchemy.
+$env:ALCHEMY_RPC_URL = "https://polygon-mainnet.g.alchemy.com/v2/TU_CLAVE"
+python .\pol_wallet_pipeline.py alchemy --lookback-hours 24
+```
+
+Cada modo exporta el HTML, los Parquet derivados y una tabla final con las
+wallets ganadoras. El modo `parquet` es el más rápido para colaborar porque
+no vuelve a descargar la cadena.
+
 ## Ejecución con Alchemy
 
 1. Instalar dependencias en el entorno virtual:
