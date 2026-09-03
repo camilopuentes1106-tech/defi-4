@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from run_pol_wallet_profiles import ejecutar_flujo
+from defi4.pipeline import ejecutar_desde_parquet
 
 
 WALLET = "0x1111111111111111111111111111111111111111"
@@ -25,13 +25,13 @@ class MainFlowTests(unittest.TestCase):
             root = Path(temporary)
             source = root / "swaps_24h.parquet"
             raw.to_parquet(source, index=False)
-            result, winners = ejecutar_flujo(
+            pipeline_result = ejecutar_desde_parquet(
                 parquet_path=source, output_dir=root / "output", min_decisiones=3,
             )
 
-            self.assertTrue((result / "informe_wallets.html").is_file())
-            self.assertEqual(len(winners), 1)
-            self.assertEqual(winners.iloc[0]["accion"], "BUY_POL")
+            self.assertTrue((pipeline_result.snapshot_dir / "informe_wallets.html").is_file())
+            self.assertEqual(len(pipeline_result.ganadoras), 1)
+            self.assertEqual(pipeline_result.ganadoras.iloc[0]["accion"], "BUY_POL")
 
 
 if __name__ == "__main__":

@@ -5,7 +5,7 @@ from unittest.mock import patch
 
 import pandas as pd
 
-from pol_wallet_pipeline import ejecutar_desde_parquet
+from defi4.pipeline.wallets import ejecutar_desde_parquet
 
 
 WALLET = "0x1111111111111111111111111111111111111111"
@@ -28,8 +28,8 @@ class UnifiedPipelineTests(unittest.TestCase):
             snapshot = root / "output" / "snapshot"
             snapshot.mkdir(parents=True)
             (snapshot / "perfiles_wallet.parquet").touch()
-            with patch("pol_wallet_pipeline.generar_informe_desde_parquet", return_value=snapshot), patch(
-                "pol_wallet_pipeline.pd.read_parquet", return_value=profiles,
+            with patch("defi4.pipeline.wallets.generar_informe_desde_parquet", return_value=snapshot), patch(
+                "defi4.pipeline.wallets.pd.read_parquet", return_value=profiles,
             ):
                 result = ejecutar_desde_parquet(
                     parquet_path=root / "swaps_24h.parquet", output_dir=root / "output", min_decisiones=3,

@@ -2,7 +2,7 @@ import unittest
 
 import pandas as pd
 
-from pol_rl_wallet_signal import (
+from defi4.wallets.signals import (
     calcular_consenso_wallets_1h,
     construir_perfiles_causales_1h,
     seleccionar_wallets_dirigidas_1h,

@@ -16,7 +16,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pol_rl_mdp import (
+from .mdp import (
     BellmanResult,
     EmpiricalMDP,
     construir_mdp_empirico,
@@ -27,7 +27,7 @@ from pol_rl_mdp import (
     tabla_politica,
     verificar_probabilidades,
 )
-from pol_rl_wallet_signal import (
+from ..wallets.signals import (
     CONSISTENCY_THRESHOLD_RL,
     calcular_wallets_ganadoras_1h_consistentes,
 )

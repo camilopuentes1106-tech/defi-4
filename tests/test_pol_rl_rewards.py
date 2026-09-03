@@ -1,6 +1,6 @@
 import unittest
 
-from pol_rl_rewards import (
+from defi4.model.rewards import (
     acciones_admisibles,
     calcular_recompensa_con_perfiles,
     posicion_despues,

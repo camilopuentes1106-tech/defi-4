@@ -1,5 +1,44 @@
 # Proyecto DEFI IV: agente RL para operar POL guiado por wallets on-chain
 
+## Estructura de la librería
+
+La lógica ejecutable vive en el paquete `defi4`; los archivos históricos
+`pol_*.py` y `utils/` fueron retirados. El código nuevo debe importar la API
+pública:
+
+```text
+defi4/
+├── data/       # SwapPipeline y WalletView
+├── wallets/    # perfiles, ciclos FIFO, ganadoras, señales e informes
+├── model/      # recompensa, MDP, Bellman, replay y simulación
+└── pipeline/   # orquestación sin repetir lógica de negocio
+```
+
+Ejemplos de uso:
+
+```python
+from defi4.pipeline import ejecutar_desde_parquet
+from defi4.wallets import filtrar_wallets_ganadoras
+
+resultado = ejecutar_desde_parquet(parquet_path="cache/swaps_pol_usdc_24h.parquet")
+ganadoras = filtrar_wallets_ganadoras(resultado.perfiles)
+```
+
+Para la línea de comandos, el único punto de entrada es:
+
+```bash
+python main.py parquet --parquet cache/swaps_pol_usdc_24h.parquet
+python main.py rl --snapshot-dir informes_pol/snapshot_...
+# equivalente: python -m defi4 parquet --parquet cache/swaps_pol_usdc_24h.parquet
+```
+
+Como librería instalable para otro computador:
+
+```bash
+pip install -r requirements.txt
+defi4 --help
+```
+
 ## 1. ¿Qué problema resolvemos?
 
 Queremos que un agente decida cada hora si debe comprar POL, vender POL o

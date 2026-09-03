@@ -15,13 +15,13 @@ from typing import Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from pol_rl_rewards import (
+from .rewards import (
     ACCIONES,
     acciones_admisibles,
     calcular_recompensa_con_perfiles,
     posicion_despues,
 )
-from pol_rl_wallet_signal import (
+from ..wallets.signals import (
     CONSISTENCY_THRESHOLD_RL,
     construir_senales_wallets_horarias,
 )

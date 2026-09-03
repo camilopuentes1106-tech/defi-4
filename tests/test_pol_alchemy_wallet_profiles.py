@@ -8,7 +8,7 @@ from unittest.mock import patch
 import numpy as np
 import pandas as pd
 
-from pol_alchemy_wallet_profiles import (
+from defi4.wallets.profiles import (
     DEFAULT_POOL_ADDRESS,
     canonicalizar_swaps_logicos,
     construir_ciclos_hold,

@@ -3,7 +3,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from pol_wallet_summary import (
+from defi4.wallets.summary import (
     construir_perfiles_desde_tabla_wallets,
     filtrar_candidatas_wallets,
 )

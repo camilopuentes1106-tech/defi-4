@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pol_wallet_report_from_parquet import (
+from defi4.wallets.report import (
     canonicalizar_swaps_logicos,
     construir_ciclos_hold,
     construir_ledger_decisiones,

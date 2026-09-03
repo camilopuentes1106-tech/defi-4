@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pandas as pd
 
-from pol_rl_mdp import (
+from defi4.model.mdp import (
     construir_mdp_empirico,
     construir_observaciones_horarias,
     replay_historico,
@@ -13,8 +13,8 @@ from pol_rl_mdp import (
     tabla_politica,
     verificar_probabilidades,
 )
-from pol_rl_pipeline import ejecutar_rl_desde_snapshot
-from pol_rl_rewards import acciones_admisibles
+from defi4.model.workflow import ejecutar_rl_desde_snapshot
+from defi4.model.rewards import acciones_admisibles
 
 
 def _observaciones() -> pd.DataFrame:

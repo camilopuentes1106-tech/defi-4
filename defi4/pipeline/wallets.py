@@ -29,16 +29,16 @@ from typing import Sequence
 
 import pandas as pd
 
-from pol_alchemy_wallet_profiles import (
+from ..wallets.profiles import (
     DEFAULT_LOOKBACK_HOURS,
     DEFAULT_POOL_ADDRESS,
     ejecutar_pipeline_perfiles,
     reconstruir_perfiles_desde_cache,
 )
-from pol_wallet_report_from_parquet import generar_informe_desde_parquet
-from pol_wallet_winners import filtrar_wallets_ganadoras, resumen_estados_perfiles
-from pol_rl_pipeline import RLPipelineResult, ejecutar_rl_desde_snapshot
-from pol_rl_wallet_signal import CONSISTENCY_THRESHOLD_RL
+from ..wallets.report import generar_informe_desde_parquet
+from ..wallets.winners import filtrar_wallets_ganadoras, resumen_estados_perfiles
+from ..model.workflow import RLPipelineResult, ejecutar_rl_desde_snapshot
+from ..wallets.signals import CONSISTENCY_THRESHOLD_RL
 
 
 @dataclass(frozen=True)

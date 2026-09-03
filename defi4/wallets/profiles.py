@@ -28,7 +28,7 @@ from typing import Any, Iterable, Mapping
 import numpy as np
 import pandas as pd
 
-from pol_wallet_winners import (
+from .winners import (
     calcular_consistency_score,
     clasificar_winner_status,
     filtrar_wallets_ganadoras,
