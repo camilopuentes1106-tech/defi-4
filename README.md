@@ -1,35 +1,49 @@
 # Proyecto DEFI IV: agente RL para operar POL guiado por wallets on-chain
 
-## Estructura de la librería
+## Estructura de la librería (`lib_rl`)
 
-La lógica ejecutable vive en el paquete `defi4`; los archivos históricos
-`pol_*.py` y `utils/` fueron retirados. El código nuevo debe importar la API
-pública:
+La lógica del proyecto reside en la librería `lib_rl`, estructurada en módulos `.py` autónomos y limpios:
 
 ```text
-defi4/
-├── data/       # SwapPipeline y WalletView
-├── wallets/    # perfiles, ciclos FIFO, ganadoras, señales e informes
-├── model/      # recompensa, MDP, Bellman, replay y simulación
-└── pipeline/   # orquestación sin repetir lógica de negocio
+lib_rl/
+├── __init__.py      # API pública unificada
+├── transacciones.py # SwapPipeline: descarga on-chain, gas POL/USDC y retornos forward
+├── wallets.py       # WalletView, swaps lógicos, ciclos FIFO, ledger y perfiles ganadores
+└── bellman.py       # MDP empírico 24 estados, reward shaping y solución Bellman
 ```
 
 Ejemplos de uso:
 
 ```python
-from defi4.pipeline import ejecutar_desde_parquet
-from defi4.wallets import filtrar_wallets_ganadoras
+from lib_rl.transacciones import SwapPipeline
+from lib_rl.wallets import WalletView, analizar_wallets, filtrar_wallets_ganadoras
+from lib_rl.bellman import ejecutar_agente_bellman
 
-resultado = ejecutar_desde_parquet(parquet_path="cache/swaps_pol_usdc_24h.parquet")
+# 1. Transacciones on-chain o desde cache
+pipeline = SwapPipeline(cache_path="cache/swaps_24h.parquet")
+df_swaps = pipeline.ejecutar(forzar_descarga=False)
+
+# 2. Resumen por wallet
+wallets = WalletView(pipeline)
+df_wallets = wallets.construir()
+
+# 3. Análisis completo de perfiles en memoria
+resultado = analizar_wallets(df_swaps)
 ganadoras = filtrar_wallets_ganadoras(resultado.perfiles)
+
+# 4. Agente Bellman en memoria
+resultado_rl = ejecutar_agente_bellman(
+    swaps_logicos=resultado.swaps_logicos,
+    ledger=resultado.ledger,
+    perfiles=resultado.perfiles,
+)
 ```
 
 Para la línea de comandos, el único punto de entrada es:
 
 ```bash
-python main.py parquet --parquet cache/swaps_pol_usdc_24h.parquet
-python main.py rl --snapshot-dir informes_pol/snapshot_...
-# equivalente: python -m defi4 parquet --parquet cache/swaps_pol_usdc_24h.parquet
+python main.py parquet --parquet cache/swaps_24h.parquet
+python main.py rl --parquet cache/swaps_24h.parquet
 ```
 
 Como librería instalable para otro computador:
