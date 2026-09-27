@@ -1,0 +1,351 @@
+\documentclass[12pt,letterpaper]{article}
+
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[spanish,es-nodecimaldot]{babel}
+\usepackage{lmodern}
+\usepackage{microtype}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs,tabularx,array}
+\usepackage{geometry}
+\usepackage{fancyhdr}
+\usepackage{hyperref}
+
+\geometry{left=2.5cm,right=2.5cm,top=2.6cm,bottom=2.6cm,headheight=16pt}
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.55em}
+\renewcommand{\arraystretch}{1.18}
+\newcolumntype{Y}{>{\raggedright\arraybackslash}X}
+\newcommand{\code}[1]{\texttt{#1}}
+\newcommand{\q}{Q-learning}
+
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\small Finanzas Descentralizadas IV}
+\fancyhead[R]{\small Parcial 2 -- Q-learning}
+\fancyfoot[C]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+\title{\textbf{Del modelo de Bellman a Q-learning}\\[0.4em]
+\large Agente de decisión POL/USDC guiado por evidencia de wallets on-chain}
+\author{Juan Camilo Puentes y Jesús Figueroa\\
+Finanzas Descentralizadas IV\\
+Profesor: Julián Sánchez}
+\date{Parcial 2 -- Septiembre de 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Este documento continúa el proyecto del Parcial 1 sobre decisiones de cartera
+entre USDC y POL. El agente observa el régimen reciente de POL, una señal
+causal construida con wallets de desempeño consistente y la posición actual.
+La formulación original estimaba un MDP y resolvía Bellman hacia atrás. En este
+avance se conserva el mismo estado, las mismas acciones y la recompensa neta de
+gas, pero se aprende una tabla temporal $Q_t(s,a)$ mediante experiencias
+históricas y exploración $\varepsilon$-greedy. Se presenta una evaluación
+cronológica separada: 16 horas para entrenar y 8 horas posteriores para probar.
+El resultado ilustra el mecanismo y sus límites; no constituye una afirmación de
+rentabilidad futura.
+\end{abstract}
+
+\section{Problema y decisión del agente}
+
+El problema es administrar, cada hora, una cartera simplificada con capital en
+USDC o POL. El \textbf{agente} es la política de aprendizaje por refuerzo. El
+\textbf{entorno} es el historial del pool Uniswap V3 POL/USDC en Polygon,
+junto con la actividad on-chain de las wallets. La \textbf{decisión secuencial}
+consiste en elegir una acción válida para la posición disponible y recibir el
+resultado observado durante la hora siguiente.
+
+El objetivo financiero es maximizar la riqueza acumulada neta de gas. Las
+wallets no se copian como una regla fija: sus perfiles agregados sólo aportan
+contexto al estado y un ajuste prudente de la recompensa cuando su señal coincide
+con una decisión financieramente ventajosa.
+
+\begin{center}
+\begin{tabularx}{0.92\linewidth}{p{3cm}Y}
+\toprule
+\textbf{Componente} & \textbf{Definición en el proyecto}\\
+\midrule
+Agente & Política tabular que elige acciones sobre una cartera USDC/POL.\\
+Entorno & Precios horarios del pool POL/USDC y señales causales de wallets on-chain.\\
+Frecuencia & Una decisión por hora.\\
+Episodio & Secuencia ordenada de cortes horarios; el snapshot usado contiene 24 observaciones.\\
+Objetivo & Aprender el valor esperado de cada acción válida, descontando gas y considerando el efecto futuro de la cartera.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+\section{Del MDP de Bellman a la formulación de Q-learning}
+
+En Bellman se estimaron recompensas medias y probabilidades de transición
+$P(s'\mid s,a)$ para resolver la política de horizonte finito hacia atrás. En
+\q\ no se consulta la matriz $P$ durante la actualización. En su lugar, el
+agente recorre una experiencia observada, compara lo que esperaba con lo que
+ocurrió y corrige una sola entrada de su tabla.
+
+La formulación concreta es
+\[
+S_t=(R_t,W_t,X_t),\qquad A_t\in\mathcal A(S_t),\qquad
+R_{t+1}=r(S_t,A_t,S_{t+1}).
+\]
+
+\begin{center}
+\begin{tabularx}{0.95\linewidth}{p{2.6cm}Y Y}
+\toprule
+\textbf{Variable} & \textbf{Qué representa} & \textbf{Qué comportamiento captura}\\
+\midrule
+$R_t$ & Régimen: \code{DOWN}, \code{FLAT} o \code{UP}. & Promedio de retornos pasados de 1m, 5m, 15m y 1h; no usa precio futuro.\\
+$W_t$ & Señal: \code{BUY}, \code{SELL}, \code{HOLD} o \code{NEUTRAL}. & Consenso de perfiles de 1h que ya maduraron al corte $t$.\\
+$X_t$ & Posición: 0 para USDC y 1 para POL. & Exposición al precio y acciones legalmente disponibles.\\
+$A_t$ & Acción del agente. & Entrar, salir o conservar la posición.\\
+$R_{t+1}$ & Recompensa observada. & Retorno de POL, gas y apoyo de wallets.\\
+\bottomrule
+\end{tabularx}
+\end{center}
+
+El espacio tiene $3\times4\times2=24$ estados interpretables. La
+representación es una aproximación de Markov: resume información útil sin
+guardar todo el historial. Su principal limitación es que no incluye liquidez,
+slippage, volumen del pool, cambios de volatilidad de largo plazo ni balances
+externos de las wallets. Una ampliación razonable es añadir una categoría de
+volatilidad o liquidez sin abandonar el modelo tabular.
+
+\subsection{Acciones admisibles}
+
+El agente es long-only y no usa deuda ni apalancamiento. Por ello una acción
+debe ser compatible con la posición actual.
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Posición actual} & \textbf{Acciones admisibles} & \textbf{Posición siguiente}\\
+\midrule
+USDC & \code{BUY\_POL}, \code{HOLD} & POL o USDC\\
+POL & \code{SELL\_POL}, \code{HOLD} & USDC o POL\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Recompensa y experiencia de aprendizaje}
+
+Sea $g_t=(p_{t+1}/p_t)-1$ el retorno observado de POL en una hora y $c_t$ el
+costo de gas relativo. La recompensa base $b_t$ es
+\[
+b_t(s,a)=
+\begin{cases}
+g_t-c_t, & X_t=0,\ a=\code{BUY\_POL},\\
+0, & X_t=0,\ a=\code{HOLD},\\
+-c_t, & X_t=1,\ a=\code{SELL\_POL},\\
+g_t, & X_t=1,\ a=\code{HOLD}.
+\end{cases}
+\]
+
+La señal de wallets puede reforzar la acción dominante sólo cuando coincide con
+una ventaja financiera. Si $\hat a_t^W$ es la acción respaldada, $q_t^W$ la
+confianza de la señal y $\bar a$ la alternativa admisible, el aprendizaje usa
+\[
+R_{t+1}=b_t(s,a)+0.25\,q_t^W\,
+\mathbf{1}\{a=\hat a_t^W\}\,[b_t(s,a)-b_t(s,\bar a)].
+\]
+El primer término es siempre financiero. El segundo no convierte una mala
+operación en buena: si la acción apoyada tiene peor recompensa base, su ventaja
+es negativa. Para comparar desempeño con Buy and Hold se reporta por separado
+la riqueza económica, calculada sólo con $b_t$.
+
+\subsection{Una transición explicada}
+
+Considérese una transición simulada coherente con el proyecto. El agente está
+en
+\[
+s_t=(\code{UP},\code{BUY},\text{USDC}),\qquad a_t=\code{BUY\_POL}.
+\]
+POL pasa de 1.00 a 1.02 USDC, el gas relativo es $0.001$ y la confianza Buy es
+$0.80$. La recompensa base es $0.02-0.001=0.019$. La ventaja frente a esperar
+en USDC es $0.019$, por lo que el ajuste de wallets es
+$0.25(0.80)(0.019)=0.0038$. Entonces $R_{t+1}=0.0228$ y el estado siguiente
+puede ser $s_{t+1}=(\code{FLAT},\code{HOLD},\text{POL})$.
+
+Si para las acciones admisibles de $s_{t+1}$ el máximo aprendido es $0.0300$,
+el target con $\gamma=0.99$ es
+\[
+Y_t=0.0228+0.99(0.0300)=0.0525.
+\]
+Supóngase que antes de la experiencia $Q_t(s_t,\code{BUY\_POL})=0.0100$ y que
+$\alpha=0.15$. La actualización queda
+\[
+Q_t(s_t,a_t)\leftarrow0.0100+0.15(0.0525-0.0100)=0.0164.
+\]
+La experiencia fue mejor de lo que la tabla esperaba, por lo que aumenta el
+valor de comprar en ese contexto. Si el target fuera menor que el valor previo,
+la tabla reduciría su estimación. Con datos cortos, un $\alpha$ muy grande
+haría que cada hora atípica tenga demasiado peso.
+
+\section{Exploración, explotación y entrenamiento}
+
+La tabla se inicializa en cero con una dimensión por hora restante:
+$Q_t(s,a)$ para $t=0,\ldots,15$ en el bloque de entrenamiento. Se entrenó con
+2,000 episodios sobre las primeras 16 observaciones del snapshot. Cada episodio
+recorre el bloque en orden temporal, parte de USDC y actualiza sólo acciones
+admisibles.
+
+La política de comportamiento es $\varepsilon$-greedy. En el episodio $e$,
+$\varepsilon$ disminuye linealmente de 0.90 a 0.05:
+\[
+\varepsilon_e=0.90+\frac{e-1}{2000-1}(0.05-0.90).
+\]
+\textbf{Explorar} significa escoger al azar entre las dos acciones válidas.
+\textbf{Explotar} significa escoger la acción admisible con el mayor valor Q.
+El valor inicial alto evita que un empate con Q inicial cero fije toda la
+trayectoria; el piso de 0.05 conserva exploración hasta el final. En evaluación
+se fija $\varepsilon=0$: no se actualiza Q ni se sortean acciones.
+
+\section{Evidencia de aprendizaje}
+
+La evidencia no se limita a la riqueza final. La Tabla~\ref{tab:evidencia}
+muestra que la exploración se reduce, la recompensa por episodio aumenta en la
+trayectoria de entrenamiento y la magnitud media de Q se estabiliza. La
+recompensa acumulada depende de las acciones exploradas, por lo que no tiene que
+crecer de forma monótona.
+
+\begin{table}[h]
+\centering
+\caption{Diagnóstico de entrenamiento de Q-learning en las 16 horas iniciales.}
+\label{tab:evidencia}
+\begin{tabular}{rrrr}
+\toprule
+\textbf{Episodio} & $\boldsymbol{\varepsilon}$ & \textbf{Recompensa total} & \textbf{Media $|Q|$}\\
+\midrule
+1 & 0.9000 & 0.1329 & 0.000030\\
+500 & 0.6878 & 0.0619 & 0.004037\\
+1000 & 0.4752 & 0.1299 & 0.004039\\
+1500 & 0.2626 & 0.2612 & 0.004039\\
+2000 & 0.0500 & 0.3151 & 0.004039\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El promedio de recompensa de los primeros 200 episodios fue 0.1062 y el de los
+últimos 200 fue 0.2916. Esto muestra que la tabla cambia y la política explota
+más las acciones con mayor valor. No demuestra una ganancia estable fuera de
+muestra, porque el bloque de entrenamiento es corto y repite una trayectoria.
+
+\section{Política aprendida e interpretación}
+
+La política greedy se obtiene mediante
+\[
+\pi_t(s)\in\arg\max_{a\in\mathcal A(s)}Q_t(s,a).
+\]
+La Tabla~\ref{tab:politica} presenta estados que aparecieron durante el bloque
+de entrenamiento. Los valores cambian con $t$ porque quedan distintas horas por
+decidir; el mismo estado puede tener otra acción en una etapa posterior.
+
+\begin{table}[h]
+\centering
+\caption{Estados representativos de la política Q aprendida.}
+\label{tab:politica}
+\begin{tabularx}{\linewidth}{p{1.2cm}YrrY}
+\toprule
+$t$ & \textbf{Estado} & \textbf{Q de acción 1} & \textbf{Q de acción 2} & \textbf{Política e interpretación}\\
+\midrule
+0 & $(\code{FLAT},\code{BUY},\text{USDC})$ & Buy: 0.3029 & Hold: 0.2543 & \code{BUY\_POL}. Al inicio, la combinación observada favorece entrar a POL.\\
+1 & $(\code{UP},\code{HOLD},\text{POL})$ & Sell: 0.1942 & Hold: 0.2596 & \code{HOLD}. Conserva la exposición cuando el valor futuro de mantener supera al de salir.\\
+3 & $(\code{UP},\code{HOLD},\text{POL})$ & Sell: 0.1457 & Hold: 0.1150 & \code{SELL\_POL}. Con menos tiempo restante, el valor favorece realizar la salida.\\
+8 & $(\code{DOWN},\code{BUY},\text{USDC})$ & Buy: 0.0213 & Hold: 0.0480 & \code{HOLD}. Aunque la señal es Buy, el retorno y horizonte aprendidos favorecen esperar.\\
+\bottomrule
+\end{tabularx}
+\end{table}
+
+El cuarto caso muestra por qué la señal de wallets no es una orden automática.
+Los conteos de visitas del estado inicial fueron 1,554 para Buy y 446 para Hold,
+de un total de 2,000 episodios. Esos conteos ayudan a interpretar la confianza
+de la tabla, pero no resuelven la falta de cobertura en estados no observados.
+
+\section{Evaluación cronológica y comparación}
+
+El Parcial 2 exige evaluar con información distinta de la usada para aprender
+Q. Se hizo una división cronológica sin mezclar horas:
+
+\begin{center}
+\begin{tabular}{lll}
+\toprule
+\textbf{Bloque} & \textbf{Cortes horarios UTC} & \textbf{Uso}\\
+\midrule
+Entrenamiento & 22-Ago-2026 02:00 a 17:00 & Actualizar Q.\\
+Evaluación & 22-Ago-2026 18:00 a 23-Ago-2026 01:00 & Política congelada, sin actualizar Q.\\
+\bottomrule
+\end{tabular}
+\end{center}
+
+La métrica principal es la riqueza económica con capital inicial 100, compuesta
+con recompensa base y por tanto neta de gas. Se compara con Bellman entrenado en
+el mismo bloque y con Buy and Hold, que compra POL una vez al inicio de la
+evaluación y mantiene hasta el final.
+
+\begin{table}[h]
+\centering
+\caption{Resultado fuera del bloque de entrenamiento: riqueza económica neta de gas.}
+\begin{tabular}{lrrl}
+\toprule
+\textbf{Estrategia} & \textbf{Riqueza final} & \textbf{Retorno} & \textbf{Acciones durante evaluación}\\
+\midrule
+Q-learning & 97.9904 & -2.01\% & 4 compras y 4 ventas\\
+Bellman & 97.5524 & -2.45\% & 1 compra, 1 venta y 6 hold\\
+Buy and Hold & 96.2086 & -3.79\% & compra inicial y mantenimiento\\
+\bottomrule
+\end{tabular}
+\end{table}
+
+Q-learning obtuvo la menor pérdida en esta única ventana de evaluación, pero no
+supera una prueba estadística ni permite concluir superioridad. Varios estados
+del bloque de prueba no fueron visitados en entrenamiento, por lo que sus
+valores Q permanecen cercanos a cero y los empates pueden determinar la acción.
+El resultado negativo es informativo: la implementación se puede evaluar y la
+generalización todavía es limitada.
+
+\section{Interpretación, limitaciones y siguiente avance}
+
+El agente aprendió valores distintos para acciones admisibles en estados que sí
+recorrió durante el entrenamiento, y su decisión puede variar con las horas que
+quedan. Parece funcionar mejor en combinaciones repetidas, como
+$(\code{UP},\code{BUY},\text{POL})$, donde ambas alternativas recibieron muchas
+actualizaciones. Presenta dificultades en estados escasos o ausentes y en una
+ventana de sólo 24 horas con señales de wallets concentradas en pocas categorías.
+
+La principal limitación es el tamaño y diversidad de la historia. Una tabla
+discreta necesita visitas para estimar cada par estado-acción; con pocos cortes,
+la división temporal deja muy poca cobertura en prueba. También faltan slippage,
+liquidez, comisiones variables e información de mercado más amplia.
+
+El siguiente avance concreto es acumular snapshots de múltiples fechas,
+reservar bloques cronológicos para entrenamiento, validación y prueba, y medir
+la cobertura de cada estado antes de comparar estrategias. Con esa historia se
+podrán ajustar $\alpha$, $\gamma$ y el decaimiento de $\varepsilon$ sólo en
+validación y conservar el test final intacto.
+
+\section{Conclusión}
+
+La transición desde Bellman a Q-learning conserva la semántica del proyecto:
+el estado integra régimen, wallets y posición; las acciones respetan una cartera
+long-only; y la recompensa sigue siendo financiera y neta de gas. La diferencia
+es metodológica: Bellman usa un modelo estimado del entorno, mientras Q-learning
+ajusta sus valores con experiencias.
+
+La evaluación cronológica evidencia que el pipeline ya separa aprendizaje y
+prueba, aunque el volumen de datos no basta para una conclusión financiera. El
+resultado cumple el objetivo del Parcial 2: mostrar qué aprende el agente, cómo
+explora, cómo se actualiza Q y cómo interpretar críticamente su desempeño.
+
+\begin{thebibliography}{9}
+\bibitem{parcial1}
+Puentes, J. C. y Figueroa, J. (2026). \emph{Perfiles de wallets on-chain y programación dinámica para decisiones de operación sobre POL}. Parcial 1, Finanzas Descentralizadas IV.
+
+\bibitem{parcial2}
+Sánchez, J. (2026). \emph{Parcial 2 -- Sustentación del proyecto: del modelo de Bellman a Q-learning}. Finanzas Descentralizadas IV.
+
+\bibitem{sutton}
+Sutton, R. S. y Barto, A. G. (2018). \emph{Reinforcement Learning: An Introduction} (2.a ed.). MIT Press.
+\end{thebibliography}
+
+\end{document}
