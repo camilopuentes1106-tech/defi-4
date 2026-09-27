@@ -59,6 +59,13 @@ from .bellman import (
     tabla_politica,
     verificar_probabilidades,
 )
+from .qlearning import (
+    QLearningResult,
+    entrenar_q_learning,
+    replay_buy_and_hold,
+    replay_q_learning_historico,
+    tabla_politica_q_learning,
+)
 
 __all__ = [
     # Transacciones
@@ -109,4 +116,10 @@ __all__ = [
     "simular_politica",
     "tabla_politica",
     "verificar_probabilidades",
+    # Q-learning
+    "QLearningResult",
+    "entrenar_q_learning",
+    "replay_buy_and_hold",
+    "replay_q_learning_historico",
+    "tabla_politica_q_learning",
 ]
