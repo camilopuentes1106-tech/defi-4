@@ -1,3 +1,10 @@
-# Fuente única de dependencias: pyproject.toml.
-# Instala la librería y el extra para notebooks/Colab.
--e .[notebook]
+# Dependencias para ejecutar el notebook desde la raíz del repositorio.
+numpy
+pandas
+pyarrow
+yfinance
+web3
+plotly
+matplotlib
+ipython
+torch
