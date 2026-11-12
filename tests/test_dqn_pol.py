@@ -1,10 +1,25 @@
 import unittest
 import numpy as np
 import pandas as pd
-from lib_rl.dqn import experimento_pol, indices_validos, auditar
+from lib_rl.dqn import experimento_pol, indices_validos, auditar, comparar_replay_historico
 from lib_rl.bellman import ACCIONES
 
 class TestDqnPOL(unittest.TestCase):
+    def test_replay_comun_descarta_hora_incompleta(self):
+        ts = pd.date_range("2026-01-01", periods=6, freq="h", tz="UTC")
+        obs = pd.DataFrame({"as_of": ts, "regimen_mercado": "FLAT", "senal_wallets": "NEUTRAL",
+                            "precio_t": 100., "precio_t1": 101., "support_buy": 0., "support_sell": 0.,
+                            "support_hold": 0., "costo_gas_ratio": .001})
+        swaps = pd.DataFrame({"timestamp": ts})
+        replay = comparar_replay_historico(obs, swaps, episodios_dqn=4, episodios_tabla=10)
+        self.assertEqual(len(replay["observaciones"]), 5)
+        self.assertEqual(len(replay["resultados"]), 20)
+        self.assertEqual(set(replay["resultados"].metodo), {"DQN", "Q-learning", "Bellman", "Buy and Hold"})
+        for _, block in replay["resultados"].groupby("metodo"):
+            self.assertEqual(block.as_of.tolist(), ts[:5].tolist())
+            self.assertTrue(block.estado.iloc[0].endswith(", 0)"))
+            self.assertEqual(block.t.tolist(), list(range(5)))
+
     def test_split_actions_and_terminal(self):
         ts = pd.date_range("2026-01-01", periods=25, freq="h", tz="UTC")
         obs = pd.DataFrame({"as_of": ts[:-1], "regimen_mercado": "FLAT", "senal_wallets": "NEUTRAL",

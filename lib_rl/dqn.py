@@ -254,3 +254,36 @@ def resumen_resultados(replays):
                      'Cambios':int(r.accion.isin(['BUY_POL','SELL_POL']).sum()),
                      'Objetivo acumulado':r.wealth_objetivo.iloc[-1]/100-1})
     return pd.DataFrame(rows)
+
+
+def comparar_replay_historico(observaciones, swaps, *, max_horas=24,
+                              episodios_dqn=600, episodios_tabla=2000,
+                              profile_weight=.25, seed=7):
+    """Replay común in-sample: los tres modelos se entrenan en el mismo período.
+
+    Incluye solo horas cuyo final queda dentro de los datos observados. La última
+    hora incompleta no se extrapola. Cada política comienza en USDC y mantiene
+    su posición entre horas; la riqueza económica excluye el bonus de wallets.
+    """
+    if max_horas < 2:
+        raise ValueError('El replay necesita al menos dos horas.')
+    frame = observaciones.sort_values('as_of').copy().reset_index(drop=True)
+    ultima_fecha = pd.to_datetime(swaps['timestamp'], utc=True).max()
+    frame = frame[frame.as_of + pd.Timedelta(hours=1) <= ultima_fecha]
+    frame = frame.iloc[:max_horas].copy().reset_index(drop=True)
+    if len(frame) < 2:
+        raise ValueError('No hay suficientes retornos horarios completos en el cache.')
+    if not frame.as_of.diff().dropna().eq(pd.Timedelta(hours=1)).all():
+        raise ValueError('El replay requiere horas consecutivas sin huecos.')
+
+    mdp = construir_mdp_empirico(frame, profile_weight=profile_weight)
+    q_tabular = entrenar_tabla_bloques([frame], mdp, episodes=episodios_tabla, seed=seed)
+    dqn = entrenar_dqn([frame], episodios=episodios_dqn, profile_weight=profile_weight, seed=seed)
+    bellman = resolver_bellman_finito(mdp, horizon=len(frame), gamma=.99)
+    modelos = {'DQN': dqn, 'Q-learning': q_tabular, 'Bellman': bellman, 'Buy and Hold': None}
+    replays = pd.concat([
+        evaluar_bloque(frame, nombre, modelo, mdp, profile_weight=profile_weight)
+        for nombre, modelo in modelos.items()
+    ], ignore_index=True)
+    return {'observaciones': frame, 'modelos': modelos, 'mdp': mdp,
+            'resultados': replays, 'metricas': resumen_resultados(replays)}
