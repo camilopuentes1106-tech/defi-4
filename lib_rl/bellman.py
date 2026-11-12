@@ -208,7 +208,7 @@ def _price_events(swaps_logicos: pd.DataFrame) -> pd.Series:
         frame["timestamp"].notna()
         & (frame["precio_ejecutado"] > 0)
         & frame[dir_col].isin(["BUY_POL", "SELL_POL", "Buy", "Sell"])
-    ].sort_values("timestamp")
+    ].sort_values("timestamp", kind="stable")
     if frame.empty:
         return pd.Series(dtype=float, name="price")
     prices = frame.set_index("timestamp")["precio_ejecutado"]
@@ -251,13 +251,14 @@ def construir_observaciones_horarias(
     consistency_threshold: float = CONSISTENCY_THRESHOLD_RL,
     flat_band: float = 0.001,
 ) -> pd.DataFrame:
-    """Construye las 24 observaciones horarias: mercado, señal de wallets y confianza."""
+    """Construye observaciones horarias completas con mercado y señal de wallets."""
     prices = _price_events(swaps_logicos)
     if prices.empty:
         return pd.DataFrame()
     first = prices.index.min().ceil("h")
     last = prices.index.max().floor("h")
-    cuts = pd.date_range(first, last, freq="h", tz="UTC")
+    # Cada observación necesita una hora completa hasta su precio siguiente.
+    cuts = pd.date_range(first, last - pd.Timedelta(hours=1), freq="h", tz="UTC")
     if len(cuts) < 2:
         return pd.DataFrame()
 
@@ -525,7 +526,7 @@ def ejecutar_agente_bellman(
     mdp = construir_mdp_empirico(
         observaciones, profile_weight=profile_weight, laplace_alpha=laplace_alpha,
     )
-    bellman = resolver_bellman_finito(mdp, horizon=horizon, gamma=gamma)
+    bellman = resolver_bellman_finito(mdp, horizon=len(observaciones) if horizon is None else horizon, gamma=gamma)
     politica = tabla_politica(mdp, bellman, time=0)
     replay = replay_historico(observaciones, mdp, bellman)
 

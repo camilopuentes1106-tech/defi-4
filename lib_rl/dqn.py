@@ -11,7 +11,7 @@ import torch.nn.functional as F
 from .bellman import (ACCIONES, REGIMENES_MERCADO, SENALES_WALLETS,
                       acciones_admisibles, posicion_despues,
                       calcular_recompensa_con_perfiles, _support_from_row)
-from .qlearning import QLearningResult
+from .qlearning import QLearningResult, entrenar_q_learning
 from .bellman import construir_mdp_empirico, resolver_bellman_finito
 
 
@@ -292,7 +292,11 @@ def comparar_replay_historico(observaciones, swaps, *, max_horas=24,
         raise ValueError('El replay requiere horas consecutivas sin huecos.')
 
     mdp = construir_mdp_empirico(frame, profile_weight=profile_weight)
-    q_tabular = entrenar_tabla_bloques([frame], mdp, episodes=episodios_tabla, seed=seed)
+    # El replay completo reutiliza exactamente el entrenamiento tabular de la
+    # Parte IV, incluida su regla de desempate durante la exploración.
+    q_tabular = entrenar_q_learning(frame, mdp, episodes=episodios_tabla,
+                                    alpha=.15, gamma=.99, epsilon_start=.9,
+                                    epsilon_end=.05, seed=seed)
     dqn = entrenar_dqn([frame], episodios=episodios_dqn, profile_weight=profile_weight, seed=seed)
     bellman = resolver_bellman_finito(mdp, horizon=len(frame), gamma=.99)
     modelos = {'DQN': dqn, 'Q-learning': q_tabular, 'Bellman': bellman, 'Buy and Hold': None}

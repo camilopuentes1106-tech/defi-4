@@ -5,6 +5,7 @@ Ejecutar desde la raíz del repositorio:
 """
 from pathlib import Path
 import json
+import hashlib
 import sys
 import numpy as np
 import pandas as pd
@@ -17,6 +18,8 @@ from lib_rl.wallets import analizar_wallets
 from lib_rl.bellman import ejecutar_agente_bellman
 from lib_rl.dqn import experimento_pol, resumen_resultados, auditar, comparar_replay_historico
 from presentacion_final_dqn.crear_figuras_decisiones import guardar_decisiones
+from presentacion_final_dqn.actualizar_resultados_base import guardar_resultados_base
+from presentacion_final_dqn.crear_resultados_q import guardar_resultados_q
 
 ROOT = Path(__file__).resolve().parent.parent
 OUT = Path(__file__).resolve().parent / "figuras"
@@ -27,7 +30,9 @@ res = analizar_wallets(raw, min_decisiones=3)
 print("Perfiles:", len(res.perfiles), flush=True)
 r = ejecutar_agente_bellman(swaps_logicos=res.swaps_logicos, ledger=res.ledger,
                            perfiles=res.perfiles, consistency_threshold=.8,
-                           flat_band=.001, profile_weight=.25, horizon=24, gamma=.99)
+                           flat_band=.001, profile_weight=.25, horizon=None, gamma=.99)
+guardar_resultados_base(r, OUT.parent)
+r.observaciones.to_csv(OUT/'observaciones_horarias.csv', index=False)
 ex = experimento_pol(r.observaciones, res.swaps_logicos, horizonte=4, episodios=600, seed=7)
 guardar_decisiones(ex, OUT.parent)
 dqn = ex["modelos"]["DQN"]
@@ -105,6 +110,8 @@ valid=list(a['acciones_futuras_validas'])
 all_actions=['BUY_POL','SELL_POL','HOLD']
 qfuture=max(float(a['Q_objetivo'][all_actions.index(v)]) for v in valid)
 details={
+  'cache_sha256':hashlib.sha256((ROOT/'cache/swaps_24h.parquet').read_bytes()).hexdigest(),
+  'ultima_transaccion_utc':str(pd.to_datetime(raw['timestamp'],utc=True).max()),
   'cache_filas':len(raw), 'observaciones':len(r.observaciones),
   'train_bloques':len(ex['train']), 'horizonte':4,
   'validacion':ex['validacion'].to_dict(orient='records'),
@@ -160,6 +167,7 @@ replay_comun = comparar_replay_historico(
     r.observaciones, res.swaps_logicos, max_horas=24,
     episodios_dqn=600, episodios_tabla=2000, seed=7
 )
+guardar_resultados_q(replay_comun, OUT.parent)
 frame_replay = replay_comun['resultados']
 metricas_replay = replay_comun['metricas']
 horas = len(replay_comun['observaciones'])

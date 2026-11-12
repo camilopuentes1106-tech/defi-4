@@ -1,6 +1,8 @@
 {
+  "cache_sha256": "460c7732246d7e61fe46efe1ddc325eed799eb93351e29bf11925433b6540872",
+  "ultima_transaccion_utc": "2026-08-23 01:47:19+00:00",
   "cache_filas": 21331,
-  "observaciones": 24,
+  "observaciones": 23,
   "train_bloques": 3,
   "horizonte": 4,
   "validacion": [
@@ -23,16 +25,16 @@
   "auditoria": {
     "accion": "HOLD",
     "recompensa": 0.0,
-    "q": 580.4446411132812,
-    "q_futuro_valido": 585.6437377929688,
-    "target": 579.7873004150391,
-    "huber": 0.21605360507965088,
+    "q": 171.0529327392578,
+    "q_futuro_valido": 173.1206512451172,
+    "target": 171.38944473266602,
+    "huber": 0.05662195757031441,
     "done": 0.0
   },
   "decision_test": {
     "accion": "BUY_POL",
-    "Q_BUY_POL": 867.2417602539062,
-    "Q_HOLD": 591.5499267578125
+    "Q_BUY_POL": 269.44146728515625,
+    "Q_HOLD": 128.6627655029297
   },
   "test": [
     {
@@ -40,37 +42,37 @@
       "Retorno económico": -0.041232046996069416,
       "Máx. drawdown": -0.041232046996069416,
       "Cambios": 1,
-      "Objetivo acumulado": -0.041873290649037775
+      "Objetivo acumulado": -0.04185589143156532
     },
     {
       "Método": "Q-learning",
       "Retorno económico": -0.043963754036744795,
       "Máx. drawdown": -0.043963754036744795,
       "Cambios": 3,
-      "Objetivo acumulado": -0.04424282610510577
+      "Objetivo acumulado": -0.04421594006994578
     },
     {
       "Método": "Bellman",
       "Retorno económico": -0.041232046996069416,
       "Máx. drawdown": -0.041232046996069416,
       "Cambios": 1,
-      "Objetivo acumulado": -0.041873290649037775
+      "Objetivo acumulado": -0.04185589143156532
     },
     {
       "Método": "Buy and Hold",
       "Retorno económico": -0.041232046996069416,
       "Máx. drawdown": -0.041232046996069416,
       "Cambios": 1,
-      "Objetivo acumulado": -0.041873290649037775
+      "Objetivo acumulado": -0.04185589143156532
     }
   ],
   "estres": [
     {
       "Método": "DQN",
-      "Retorno económico": -0.025136546990034203,
-      "Máx. drawdown": -0.025448583903237565,
-      "Cambios": 2,
-      "Objetivo acumulado": -0.025136546990034203
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041232046996069416
     },
     {
       "Método": "Q-learning",

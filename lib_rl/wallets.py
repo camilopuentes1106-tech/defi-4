@@ -164,7 +164,9 @@ def canonicalizar_swaps_logicos(swaps: pd.DataFrame) -> pd.DataFrame:
     canonical = pd.DataFrame(records)
     if canonical.empty:
         return canonical
-    return canonical.sort_values("timestamp").reset_index(drop=True)
+    # El archivo no contiene índice de transacción: ordenar empates de forma
+    # determinista evita que agregar datos posteriores cambie el pasado.
+    return canonical.sort_values(['timestamp', 'bloque', 'hash_tx', 'wallet'], kind='stable').reset_index(drop=True)
 
 
 # ── 3. Precios de Referencia y Ciclos Hold FIFO ───────────────────────────────
@@ -180,6 +182,17 @@ def construir_precios_por_minuto_desde_swaps(swaps: pd.DataFrame) -> pd.Series:
     return series.reindex(idx).ffill().bfill()
 
 
+def _precios_por_evento(swaps: pd.DataFrame) -> pd.Series:
+    """Último precio observado hasta un instante, sin usar el cierre futuro del minuto."""
+    frame = swaps.dropna(subset=['timestamp', 'precio_ejecutado']).copy()
+    if frame.empty:
+        return pd.Series(dtype=float)
+    frame['timestamp'] = pd.to_datetime(frame['timestamp'], utc=True)
+    frame = frame.sort_values('timestamp', kind='stable')
+    prices = frame.set_index('timestamp')['precio_ejecutado']
+    return prices[~prices.index.duplicated(keep='last')]
+
+
 def construir_ciclos_hold(swaps: pd.DataFrame) -> pd.DataFrame:
     """Empareja compras y ventas por wallet mediante FIFO para delimitar períodos de Hold."""
     if swaps.empty:
@@ -191,7 +204,7 @@ def construir_ciclos_hold(swaps: pd.DataFrame) -> pd.DataFrame:
 
     for wallet, group in frame.groupby("wallet"):
         inventory = deque()
-        for _, row in group.sort_values("timestamp").iterrows():
+        for _, row in group.sort_values("timestamp", kind='stable').iterrows():
             accion = row["accion"]
             pol = float(row["pol_cantidad"])
             if accion == "BUY_POL":
@@ -256,7 +269,8 @@ def construir_ledger_decisiones(
     as_of: datetime | pd.Timestamp | str | None = None,
 ) -> pd.DataFrame:
     """Evalúa retornos y PnL forward para BUY, SELL y HOLD sin fuga temporal."""
-    cutoff = _as_utc(as_of) if as_of else None
+    ultima_fecha = pd.to_datetime(swaps_logicos['timestamp'], utc=True).max() if not swaps_logicos.empty else None
+    cutoff = min(_as_utc(as_of), ultima_fecha) if as_of is not None and ultima_fecha is not None else ultima_fecha
     rows = []
 
     # BUY y SELL
@@ -270,13 +284,13 @@ def construir_ledger_decisiones(
 
         for horiz, delta in horizontes.items():
             t1 = t0 + delta
-            is_mature = cutoff is None or t1 <= cutoff
+            is_mature = cutoff is not None and t1 <= cutoff
             p1 = precios_minuto.asof(t1) if is_mature and not precios_minuto.empty else np.nan
 
             if pd.isna(p1):
                 rows.append({
                     "wallet": row["wallet"], "accion": accion, "horizonte": horiz,
-                    "decision_time": t0, "forward_time": t1, "es_madura": False,
+                    "decision_time": t0, "forward_time": t1, "disponible_desde": t0, "es_madura": False,
                     "precio_decision": p0, "precio_forward": np.nan,
                     "retorno_neto": np.nan, "ganancia_neta_usdc": np.nan, "gas_usdc": gas,
                 })
@@ -290,7 +304,7 @@ def construir_ledger_decisiones(
 
             rows.append({
                 "wallet": row["wallet"], "accion": accion, "horizonte": horiz,
-                "decision_time": t0, "forward_time": t1, "es_madura": True,
+                "decision_time": t0, "forward_time": t1, "disponible_desde": t0, "es_madura": True,
                 "precio_decision": p0, "precio_forward": p1,
                 "retorno_neto": retorno_neto, "ganancia_neta_usdc": pnl_neto, "gas_usdc": gas,
             })
@@ -307,13 +321,13 @@ def construir_ledger_decisiones(
 
             for horiz, delta in horizontes.items():
                 t1 = t0 + delta
-                is_mature = (cutoff is None or t1 <= cutoff) and (t1 <= t_close)
+                is_mature = cutoff is not None and t1 <= cutoff and t1 <= t_close and t_close <= cutoff
                 p1 = precios_minuto.asof(t1) if is_mature and not precios_minuto.empty else np.nan
 
                 if pd.isna(p1):
                     rows.append({
                         "wallet": c["wallet"], "accion": "HOLD", "horizonte": horiz,
-                        "decision_time": t0, "forward_time": t1, "es_madura": False,
+                        "decision_time": t0, "forward_time": t1, "disponible_desde": t_close, "es_madura": False,
                         "precio_decision": p0, "precio_forward": np.nan,
                         "retorno_neto": np.nan, "ganancia_neta_usdc": np.nan, "gas_usdc": gas,
                     })
@@ -325,7 +339,7 @@ def construir_ledger_decisiones(
 
                 rows.append({
                     "wallet": c["wallet"], "accion": "HOLD", "horizonte": horiz,
-                    "decision_time": t0, "forward_time": t1, "es_madura": True,
+                    "decision_time": t0, "forward_time": t1, "disponible_desde": t_close, "es_madura": True,
                     "precio_decision": p0, "precio_forward": p1,
                     "retorno_neto": retorno_neto, "ganancia_neta_usdc": pnl_neto, "gas_usdc": gas,
                 })
@@ -492,12 +506,19 @@ def construir_perfiles_causales_1h(
     frame = ledger.copy()
     frame["decision_time"] = pd.to_datetime(frame["decision_time"], utc=True, errors="coerce")
     frame["forward_time"] = pd.to_datetime(frame["forward_time"], utc=True, errors="coerce")
+    if 'disponible_desde' not in frame.columns:
+        if frame['accion'].eq('HOLD').any():
+            raise ValueError('El ledger HOLD no registra cuándo cerró cada ciclo; reconstruye el ledger desde los swaps.')
+        frame['disponible_desde'] = frame['decision_time']
+    frame['disponible_desde'] = pd.to_datetime(frame['disponible_desde'], utc=True, errors='coerce')
     frame = frame[
         frame["accion"].isin(ACCIONES_RL)
         & frame["horizonte"].eq(HORIZONTE_WALLET_RL)
         & frame["decision_time"].notna()
         & frame["forward_time"].notna()
         & (frame["decision_time"] <= cutoff)
+        & frame['disponible_desde'].notna()
+        & (frame['disponible_desde'] <= cutoff)
     ].copy()
 
     columns = [
@@ -632,8 +653,10 @@ def analizar_wallets(
     as_of: datetime | pd.Timestamp | str | None = None,
 ) -> WalletAnalysisResult:
     """Ejecuta el análisis completo en memoria: swaps -> ciclos FIFO -> ledger -> perfiles -> ganadoras."""
+    if as_of is not None:
+        swaps = swaps[pd.to_datetime(swaps['timestamp'], utc=True) <= _as_utc(as_of)].copy()
     canonical = canonicalizar_swaps_logicos(swaps)
-    precios = construir_precios_por_minuto_desde_swaps(canonical)
+    precios = _precios_por_evento(canonical)
     ciclos = construir_ciclos_hold(canonical)
     ledger = construir_ledger_decisiones(canonical, ciclos, precios, as_of=as_of)
     perfiles = construir_perfiles_wallet(ledger, min_decisiones=min_decisiones)

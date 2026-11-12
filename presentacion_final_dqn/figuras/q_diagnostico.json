@@ -1,0 +1,10 @@
+{
+  "horas": 23,
+  "estados_visitados": 11,
+  "estados_temporales": 45,
+  "celdas_visitadas": 90,
+  "actualizaciones": 46000,
+  "estado_inicial": "FLAT/NEUTRAL/USDC",
+  "buy_inicial": 1530,
+  "hold_inicial": 470
+}

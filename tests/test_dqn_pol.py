@@ -4,6 +4,8 @@ import pandas as pd
 from lib_rl.dqn import experimento_pol, indices_validos, auditar, comparar_replay_historico
 from lib_rl.bellman import ACCIONES
 from lib_rl.explicacion_dqn import analizar_decisiones_dqn, matriz_transiciones_regimen
+from lib_rl.qlearning import entrenar_q_learning, replay_q_learning_historico
+from lib_rl.bellman import resolver_bellman_finito, replay_historico
 
 class TestDqnPOL(unittest.TestCase):
     def test_replay_comun_descarta_hora_incompleta(self):
@@ -20,6 +22,17 @@ class TestDqnPOL(unittest.TestCase):
             self.assertEqual(block.as_of.tolist(), ts[:5].tolist())
             self.assertTrue(block.estado.iloc[0].endswith(", 0)"))
             self.assertEqual(block.t.tolist(), list(range(5)))
+        frame = replay['observaciones']
+        original_q = entrenar_q_learning(frame, replay['mdp'], episodes=10, seed=7)
+        q_replay = replay_q_learning_historico(frame, replay['mdp'], original_q)
+        actual_q = replay['resultados'].query("metodo == 'Q-learning'")
+        self.assertEqual(q_replay.accion.tolist(), actual_q.accion.tolist())
+        np.testing.assert_allclose(q_replay.wealth_economica, actual_q.wealth)
+        original_bellman = resolver_bellman_finito(replay['mdp'], horizon=len(frame))
+        bellman_replay = replay_historico(frame, replay['mdp'], original_bellman)
+        actual_bellman = replay['resultados'].query("metodo == 'Bellman'")
+        self.assertEqual(bellman_replay.accion.tolist(), actual_bellman.accion.tolist())
+        np.testing.assert_allclose(100 * (1 + bellman_replay.recompensa_base).cumprod(), actual_bellman.wealth)
 
     def test_split_actions_and_terminal(self):
         ts = pd.date_range("2026-01-01", periods=25, freq="h", tz="UTC")

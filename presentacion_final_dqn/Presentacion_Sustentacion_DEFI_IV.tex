@@ -1,13 +1,7 @@
 % Presentación final DEFI IV -- compilar con pdfLaTeX en Overleaf.
-% Antes de subir a Overleaf ejecute desde la raíz del repositorio:
-% python generar_resultados_sustentacion.py \
-%   --snapshot-dir informes_pol/snapshot_20260823T014719Z_08 \
-%   --rl-dir informes_rl/snapshot_20260823T010000Z_rl_1h_02 \
-%   --output-dir presentacion_sustentacion
-%
-% Luego suba la carpeta completa presentacion_sustentacion/. El archivo
-% resultados_ejecucion.tex y las figuras no se editan a mano: son la salida
-% de esa ejecución y alimentan todos los resultados empíricos de las diapositivas.
+% Para regenerar cifras y figuras con el cache del proyecto, ejecute:
+% python presentacion_final_dqn/generar_figuras_dqn.py
+% El proyecto compilable incluye resultados y figuras ya generados.
 
 \documentclass[10pt,aspectratio=169]{beamer}
 
@@ -58,6 +52,7 @@
 
 % Esta entrada se genera con generar_resultados_sustentacion.py.
 \input{resultados_ejecucion.tex}
+\input{resultados_q.tex}
 
 \title[Wallets, Bellman, Q-learning y DQN]{Wallets on-chain y aprendizaje por refuerzo\\para operar POL}
 \subtitle{Sustentación final -- Finanzas Descentralizadas IV}
@@ -301,121 +296,69 @@ Con la recompensa y el siguiente estado, Q-learning actualiza el valor de la acc
 \end{frame}
 
 \begin{frame}{Cobertura del espacio de estados durante el entrenamiento}
-\begin{columns}[T,onlytextwidth]
-\column{.48\textwidth}
-\begin{block}{La posición determina qué estado se alcanza}
-\small
-La tabla es $Q_t(s,a)$. En una hora concreta, el snapshot ya fija el régimen $R_t$ y la señal $W_t$. La única parte que puede cambiar entre episodios es la posición $X_t$, producida por las decisiones anteriores.
+\begin{block}{¿Qué representa un estado?}
+\small Régimen de mercado, señal de wallets y posición, en la hora concreta de la decisión.
+La tabla es $Q_t(s,a)$: se guarda un valor por etapa, estado y acción.
 \end{block}
-\begin{itemize}\small
-  \item Espacio abstracto: $3\times4\times2=24$ combinaciones posibles.
-  \item En $t=0$ todos parten en USDC: existe un solo estado visitable.
-  \item Desde $t=1$, se puede llegar en USDC si antes hizo Hold o en POL si antes hizo Buy; por eso hay como máximo dos estados por hora.
-\end{itemize}
-\column{.48\textwidth}
-\begin{block}{Tabla de visitas en $t=0$}
-\centering\scriptsize
-\begin{tabular}{lrrr}
-\toprule
-Estado & Buy & Hold & Total \\
-\midrule
-(FLAT, BUY, USDC) & 1\,554 & 446 & 2\,000 \\
-Otros 23 estados abstractos & 0 & 0 & 0 \\
-\bottomrule
-\end{tabular}
-\end{block}
-\vspace{.55em}
-\begin{block}{Interpretación de las visitas}
-\small Las 2\,000 visitas corresponden a los 2\,000 episodios. En esta primera hora, el agente probó Buy 1\,554 veces y Hold 446 veces. Los otros 23 estados no fueron visitados en $t=0$, así que sus Q permanecen en cero: no representan una decisión aprendida.
-\end{block}
-\end{columns}
-\end{frame}
-
-\begin{frame}{El entrenamiento visitó 9 de los 24 estados abstractos}
-\centering
-\vspace{.25em}
-\begin{columns}[c,onlytextwidth]
-\column{.31\textwidth}
-\centering
-\colorbox{lightpanel}{\parbox[c][2.1cm][c]{.90\linewidth}{\centering
-{\color{blueaccent}\LARGE\textbf{9 / 24}}\\[.35em]
-\small Estados distintos $(R,W,X)$ visitados en algún momento.}}
-\column{.31\textwidth}
-\centering
-\colorbox{lightpanel}{\parbox[c][2.1cm][c]{.90\linewidth}{\centering
-{\color{blueaccent}\LARGE\textbf{31}}\\[.35em]
-\small Pares temporales $(t,s)$ con al menos una visita.}}
-\column{.31\textwidth}
-\centering
-\colorbox{lightpanel}{\parbox[c][2.1cm][c]{.90\linewidth}{\centering
-{\color{blueaccent}\LARGE\textbf{32\,000}}\\[.35em]
-\small Actualizaciones: 2\,000 episodios $\times$ 16 horas.}}
-\end{columns}
-
-\vspace{1em}
 \begin{itemize}
-  \item Los 9 estados cuentan combinaciones únicas de régimen, señal de wallets y posición, sin distinguir la hora.
-  \item Al incluir el tiempo, una misma combinación visitada en dos horas ocupa dos filas distintas de $Q_t(s,a)$; por eso aparecen 31 pares $(t,s)$.
-  \item En cada uno de esos 31 pares, la exploración probó las dos acciones admisibles: se actualizaron 62 celdas válidas de Q.
+\item Existen $3\times4\times2=24$ estados abstractos; no todos aparecen en la historia.
+\item En la primera hora el agente comienza en USDC; en las siguientes puede llegar con USDC o POL.
+\item Repetir episodios ayuda a probar acciones, pero no añade nuevos precios ni nuevos días de mercado.
 \end{itemize}
-
-\begin{alertblock}{Interpretación}
-La cobertura fue de 37.5\% del espacio abstracto de estados. Los 15 estados restantes no aportaron experiencias al entrenamiento y conservaron sus valores iniciales.
+\centering\small \QTablaInicio
+\begin{alertblock}{Al interpretar la política}
+Un valor Q de un estado sin visitas no es evidencia de una decisión aprendida.
 \end{alertblock}
 \end{frame}
 
-\begin{frame}{Exploración, explotación y evidencia de aprendizaje}
+\begin{frame}{Visitas a los estados de Q-learning}
+\begin{columns}[T,onlytextwidth]
+\column{.48\textwidth}
+\begin{block}{Estado}
+\small Mercado, wallets y posición describen la situación que recibe el agente antes de actuar.
+\end{block}
+\column{.48\textwidth}
+\begin{block}{Estado y etapa}
+\small La misma combinación puede aparecer en horas diferentes y ocupar posiciones distintas de la tabla $Q_t$.
+\end{block}
+\end{columns}
+\vspace{1em}
+\begin{itemize}
+\item La ejecución visitó \QEstadosVisitados{} de 24 estados y \QEstadosTemporales{} pares etapa--estado.
+\item Hubo \QActualizaciones{} actualizaciones y \QCeldasVisitadas{} celdas visitadas de la tabla.
+\item Los estados no visitados permanecen sin evidencia directa; pueden producir empates.
+\item La trayectoria completa contiene \ObservacionesRL{} horas observadas completas.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Exploración y explotación en Q-learning}
 \begin{columns}[T,onlytextwidth]
 \column{.48\textwidth}
 \begin{block}{Entrenamiento}
-\small
-\begin{itemize}
-  \item Primeras 16 observaciones horarias; 2\,000 episodios.
-  \item $\alpha=0.15$, $\gamma=0.99$ y tabla temporal $Q_t(s,a)$.
-  \item $\varepsilon$ baja linealmente de 0.90 a 0.05.
-  \item \concepto{Explorar}: elegir al azar entre acciones válidas. \concepto{Explotar}: elegir el mayor Q.
-\end{itemize}
+\small 2\,000 episodios sobre la misma trayectoria, con $\alpha=0.15$ y $\gamma=0.99$.
+La exploración $\varepsilon$ baja de 0.90 a 0.05.
 \end{block}
 \column{.48\textwidth}
-\begin{block}{Diagnóstico observado}
-\centering\scriptsize
-\begin{tabular}{rrrr}
-\toprule
-Episodio & $\varepsilon$ & Recompensa & Media $|Q|$ \\
-\midrule
-1 & 0.9000 & 0.1329 & 0.000030 \\
-500 & 0.6878 & 0.0619 & 0.004037 \\
-1\,000 & 0.4752 & 0.1299 & 0.004039 \\
-1\,500 & 0.2626 & 0.2612 & 0.004039 \\
-2\,000 & 0.0500 & 0.3151 & 0.004039 \\
-\bottomrule
-\end{tabular}
+\begin{block}{Decisión}
+\small \textbf{Explorar}: elegir al azar entre acciones permitidas.\\[.5em]
+\textbf{Explotar}: elegir la acción permitida con mayor Q.
 \end{block}
 \end{columns}
-\vspace{.45em}
-\begin{alertblock}{Evidencia observada}
-La recompensa media pasó de 0.1062 en los primeros 200 episodios a 0.2916 en los últimos 200, mientras los valores Q dejaron de ser cero. Esto evidencia aprendizaje dentro del bloque entrenado, no rentabilidad futura.
+\vspace{1em}
+\begin{alertblock}{Qué demuestra el registro}
+Las visitas y actualizaciones describen el aprendizaje sobre los datos disponibles; no demuestran rentabilidad futura.
 \end{alertblock}
 \end{frame}
 
-\begin{frame}{Política Q aprendida: decisiones interpretables}
-\small
-\centering
-\begin{tabular}{p{.10\linewidth}p{.26\linewidth}p{.27\linewidth}p{.25\linewidth}}
-\toprule
-$t$ & Estado & Valores Q & Acción e interpretación \\
-\midrule
-0 & (FLAT, BUY, USDC) & Buy: 0.3029; Hold: 0.2543 & \texttt{BUY\_POL}: entrar a POL. \\
-1 & (UP, HOLD, POL) & Sell: 0.1942; Hold: 0.2596 & \texttt{HOLD}: conservar exposición. \\
-3 & (UP, HOLD, POL) & Sell: 0.1457; Hold: 0.1150 & \texttt{SELL\_POL}: realizar salida con menos horizonte. \\
-8 & (DOWN, BUY, USDC) & Buy: 0.0213; Hold: 0.0480 & \texttt{HOLD}: la señal Buy no basta para entrar. \\
-\bottomrule
-\end{tabular}
-\vspace{.6em}
-\begin{block}{La política cambia con el horizonte}
-\centering
-$\pi_t(s)\in\arg\max_{a\in\mathcal{A}(s)}Q_t(s,a)$. El horizonte importa: un mismo estado puede tener otra acción si cambian las horas restantes.
-\end{block}
+\begin{frame}{Cómo interpretar una decisión de Q-learning}
+\centering\small Primeras decisiones del replay dentro de muestra:\par\vspace{.6em}
+\QTablaAcciones
+\vspace{.8em}
+\begin{itemize}\small
+\item El estado muestra régimen, señal y posición antes de actuar.
+\item En USDC se comparan Buy/Hold; en POL, Sell/Hold.
+\item Se elige el mayor Q admisible; las decisiones son descriptivas de esta historia.
+\end{itemize}
 \end{frame}
 
 \begin{frame}{Replay histórico: ¿qué estamos comparando?}
@@ -429,40 +372,29 @@ $\pi_t(s)\in\arg\max_{a\in\mathcal{A}(s)}Q_t(s,a)$. El horizonte importa: un mis
 \end{itemize}
 \end{frame}
 
-\begin{frame}{Evaluación fuera de muestra en 8 horas posteriores}
-\begin{block}{Separación temporal}
-\centering
-\small Entrenamiento: 22-Ago-2026, 02:00--17:00 UTC (16 horas). \hspace{1em}
-Prueba: 22-Ago-2026, 18:00--23-Ago-2026 01:00 UTC (8 horas).\\
-En prueba, $\varepsilon=0$: la política Q queda congelada y no se actualiza.
-\end{block}
-\centering
-\small
-\begin{tabular}{lrrl}
-\toprule
-Estrategia & Riqueza final & Retorno & Acciones en prueba \\
-\midrule
-Q-learning & 97.9904 & -2.01\% & 4 compras y 4 ventas \\
-Bellman & 97.5524 & -2.45\% & 1 compra, 1 venta y 6 hold \\
-Buy and Hold & 96.2086 & -3.79\% & compra inicial y mantenimiento \\
-\bottomrule
-\end{tabular}
-\vspace{.6em}
-\begin{alertblock}{Criterio de evaluación}
-Riqueza económica neta de gas, con capital inicial de 100 USDC. Q-learning tuvo la menor pérdida en esta ventana; una sola prueba de 8 horas no prueba superioridad estadística.
-\end{alertblock}
+\begin{frame}{Cómo evaluamos con datos reservados}
+\begin{columns}[T,onlytextwidth]
+\column{.32\textwidth}\begin{block}{Entrenamiento}\small Ajustar los modelos y estimar sus componentes con las horas anteriores.\end{block}
+\column{.32\textwidth}\begin{block}{Validación}\small Elegir la configuración del DQN sin mirar el resultado de test.\end{block}
+\column{.32\textwidth}\begin{block}{Prueba}\small Evaluar las políticas congeladas en horas posteriores reservadas.\end{block}
+\end{columns}
+\vspace{.8em}
+\begin{itemize}\small
+\item La evaluación de DQN usa cuatro horas de test; las cifras están en el anexo.
+\item La comparación visual posterior muestra el replay común completo dentro de muestra.
+\item La muestra es pequeña; separar los períodos no garantiza resultados futuros.
+\end{itemize}
 \end{frame}
 
 \begin{frame}{Interpretación, limitaciones y siguiente avance}
 \begin{itemize}
-  \item Q-learning distingue acciones en estados visitados y cambia con el horizonte restante.
-  \item Funciona mejor en combinaciones repetidas; estados ausentes en entrenamiento conservan Q cercano a cero y dependen de empates.
-  \item La prueba es corta: 16 horas para entrenar y 8 horas para evaluar no bastan para afirmar consistencia.
-  \item La cartera sigue simplificada: sin slippage, impacto de mercado, liquidez ni balances externos.
+\item Los tres modelos usan los mismos swaps de Polygon y la misma construcción de estados y recompensas.
+\item HOLD solo entra en la señal cuando su cierre ya se conoce; se excluyen horas incompletas.
+\item Q-learning tiene estados sin visitas; Bellman depende de su modelo estimado y DQN puede sobreajustar.
+\item Un solo snapshot y un test de cuatro horas son insuficientes para afirmar consistencia futura.
+\item Faltan slippage, impacto de mercado, liquidez y más períodos independientes.
+\item Los empates de tiempo se ordenan por bloque y hash: falta el orden real de transacción para auditar FIFO.
 \end{itemize}
-\begin{block}{Siguiente paso verificable}
-Acumular snapshots de varias fechas, reservar bloques cronológicos de entrenamiento, validación y prueba, medir cobertura de cada estado y ajustar $\alpha$, $\gamma$ y $\varepsilon$ sólo en validación.
-\end{block}
 \end{frame}
 
 \input{bloque_dqn.tex}
@@ -525,35 +457,11 @@ Supera el umbral general de $0.60$, pero no el $0.80$ requerido para la señal d
 \end{exampleblock}
 \end{frame}
 
-\begin{frame}{Anexo: nueve estados visitados en 2\,000 episodios}
-\centering
-\small
-\renewcommand{\arraystretch}{1.13}
-\begin{tabular}{lllr}
-\toprule
-Régimen & Señal de wallets & Posición & Visitas acumuladas \\
-\midrule
-DOWN & BUY & USDC & 1\,546 \\
-DOWN & BUY & POL & 454 \\
-DOWN & HOLD & USDC & 6\,504 \\
-DOWN & HOLD & POL & 3\,496 \\
-FLAT & NEUTRAL & USDC & 2\,000 \\
-UP & BUY & USDC & 1\,010 \\
-UP & BUY & POL & 2\,990 \\
-UP & HOLD & USDC & 3\,330 \\
-UP & HOLD & POL & 10\,670 \\
-\midrule
-\multicolumn{3}{r}{\textbf{Total}} & \textbf{32\,000} \\
-\bottomrule
-\end{tabular}
-\renewcommand{\arraystretch}{1.0}
-
-\vspace{.65em}
-\begin{itemize}\small
-  \item Cada fila agrega las visitas de una combinación $(R,W,X)$ en todas las horas y episodios.
-  \item Al conservar la hora como parte de $Q_t(s,a)$, estos nueve estados forman 31 pares temporales $(t,s)$.
-  \item $(\text{UP},\text{HOLD},\text{POL})$ concentró 10\,670 visitas, equivalentes al 33.34\% del entrenamiento.
-\end{itemize}
+\begin{frame}{Anexo: cómo interpretar las visitas de Q-learning}
+\centering\scriptsize
+\QTablaVisitas
+\vspace{.4em}
+\footnotesize Las visitas agregan etapas y episodios repetidos sobre \ObservacionesRL{} horas históricas; no son observaciones independientes.
 \end{frame}
 
 \begin{frame}{Anexo: registro horario del replay (1/2)}
