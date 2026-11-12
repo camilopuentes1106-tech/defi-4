@@ -1,0 +1,97 @@
+{
+  "cache_filas": 21331,
+  "observaciones": 24,
+  "train_bloques": 3,
+  "horizonte": 4,
+  "validacion": [
+    {
+      "epsilon_final": 0.05,
+      "retorno_economico": 0.01492493858332078
+    },
+    {
+      "epsilon_final": 0.3,
+      "retorno_economico": 0.01492493858332078
+    }
+  ],
+  "epsilon_seleccionado": 0.05,
+  "test_inicio": "2026-08-22 18:00:00+00:00",
+  "test_fin_decision": "2026-08-22 21:00:00+00:00",
+  "gas_ratio": 0.0008390818481480343,
+  "actualizaciones": 2337,
+  "sincronizaciones": 19,
+  "experiencias": 2400,
+  "auditoria": {
+    "accion": "HOLD",
+    "recompensa": 0.0,
+    "q": 580.4446411132812,
+    "q_futuro_valido": 585.6437377929688,
+    "target": 579.7873004150391,
+    "huber": 0.21605360507965088,
+    "done": 0.0
+  },
+  "decision_test": {
+    "accion": "BUY_POL",
+    "Q_BUY_POL": 867.2417602539062,
+    "Q_HOLD": 591.5499267578125
+  },
+  "test": [
+    {
+      "Método": "DQN",
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041873290649037775
+    },
+    {
+      "Método": "Q-learning",
+      "Retorno económico": -0.043963754036744795,
+      "Máx. drawdown": -0.043963754036744795,
+      "Cambios": 3,
+      "Objetivo acumulado": -0.04424282610510577
+    },
+    {
+      "Método": "Bellman",
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041873290649037775
+    },
+    {
+      "Método": "Buy and Hold",
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041873290649037775
+    }
+  ],
+  "estres": [
+    {
+      "Método": "DQN",
+      "Retorno económico": -0.025136546990034203,
+      "Máx. drawdown": -0.025448583903237565,
+      "Cambios": 2,
+      "Objetivo acumulado": -0.025136546990034203
+    },
+    {
+      "Método": "Q-learning",
+      "Retorno económico": -0.014865280125237246,
+      "Máx. drawdown": -0.014865280125237246,
+      "Cambios": 4,
+      "Objetivo acumulado": -0.014865280125237246
+    },
+    {
+      "Método": "Bellman",
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041232046996069416
+    },
+    {
+      "Método": "Buy and Hold",
+      "Retorno económico": -0.041232046996069416,
+      "Máx. drawdown": -0.041232046996069416,
+      "Cambios": 1,
+      "Objetivo acumulado": -0.041232046996069416
+    }
+  ]
+}

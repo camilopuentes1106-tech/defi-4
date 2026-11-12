@@ -1,0 +1,36 @@
+{
+  "horas_completas": 23,
+  "inicio_utc": "2026-08-22 02:00:00+00:00",
+  "fin_utc": "2026-08-23 01:00:00+00:00",
+  "metricas": [
+    {
+      "Método": "DQN",
+      "Retorno económico": 0.2847006890353354,
+      "Máx. drawdown": -0.02948765069717929,
+      "Cambios": 7,
+      "Objetivo acumulado": 0.2895498323175627
+    },
+    {
+      "Método": "Q-learning",
+      "Retorno económico": 0.36401028973971195,
+      "Máx. drawdown": -0.0007612977493201001,
+      "Cambios": 12,
+      "Objetivo acumulado": 0.3679583493297569
+    },
+    {
+      "Método": "Bellman",
+      "Retorno económico": 0.18322151474087867,
+      "Máx. drawdown": -0.050730666100667454,
+      "Cambios": 7,
+      "Objetivo acumulado": 0.18548965148945906
+    },
+    {
+      "Método": "Buy and Hold",
+      "Retorno económico": 0.12143039049749649,
+      "Máx. drawdown": -0.11307848792552233,
+      "Cambios": 1,
+      "Objetivo acumulado": 0.1259478922863908
+    }
+  ],
+  "alcance": "replay dentro de muestra; los modelos entrenan en el mismo período"
+}

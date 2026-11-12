@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 from lib_rl.dqn import experimento_pol, indices_validos, auditar, comparar_replay_historico
 from lib_rl.bellman import ACCIONES
+from lib_rl.explicacion_dqn import analizar_decisiones_dqn, matriz_transiciones_regimen
 
 class TestDqnPOL(unittest.TestCase):
     def test_replay_comun_descarta_hora_incompleta(self):
@@ -32,6 +33,23 @@ class TestDqnPOL(unittest.TestCase):
         self.assertEqual({ACCIONES[i] for i in indices_validos(0)}, {"BUY_POL","HOLD"})
         self.assertEqual({ACCIONES[i] for i in indices_validos(1)}, {"SELL_POL","HOLD"})
         model = result["modelos"]["DQN"]
+        analisis = analizar_decisiones_dqn(result)
+        self.assertEqual(len(analisis['train']), 20 * 4)
+        self.assertEqual(len(analisis['test']), 4)
+        self.assertEqual(matriz_transiciones_regimen(analisis['train']).to_numpy().sum(), 20 * 3)
+        self.assertEqual(matriz_transiciones_regimen(analisis['test']).to_numpy().sum(), 3)
+        self.assertEqual(analisis['acciones']['Train'].sum(), 80)
+        self.assertEqual(analisis['acciones']['Test'].sum(), 4)
+        self.assertTrue((analisis['test']['Q_accion'] >= analisis['test']['Q_alternativa']).all())
+        self.assertLess(analisis['train']['as_of'].max(), analisis['test']['as_of'].min())
+        for _, row in analisis['train'].iterrows():
+            self.assertIn(row.accion, {'BUY_POL', 'HOLD'} if row.posicion_antes == 0 else {'SELL_POL', 'HOLD'})
+            if row.done:
+                self.assertIsNone(row.estado_siguiente)
+            else:
+                self.assertEqual(row.estado_siguiente[2], row.posicion_despues)
+        self.assertTrue(analisis['test'].iloc[-1].done)
+        self.assertIsNone(analisis['test'].iloc[-1].estado_siguiente)
         self.assertTrue(any(z[4] == 1 and not np.any(z[3]) for z in model.memoria))
         audit = auditar(model)
         self.assertAlmostEqual(audit["target_pb"], audit["recompensa_pb"] + .99 * max(

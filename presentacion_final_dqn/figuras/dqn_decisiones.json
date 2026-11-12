@@ -1,0 +1,22 @@
+{
+  "acciones": {
+    "Train": {
+      "BUY_POL": 706,
+      "SELL_POL": 389,
+      "HOLD": 1305
+    },
+    "Test": {
+      "BUY_POL": 1,
+      "SELL_POL": 0,
+      "HOLD": 3
+    }
+  },
+  "exploracion_pct": 46.041666666666664,
+  "transiciones_train": 1800,
+  "transiciones_test": 3,
+  "primero_estado": "DOWN/HOLD/USDC",
+  "primero_siguiente": "DOWN/HOLD/POL",
+  "primero_accion": "BUY_POL",
+  "primero_q": 867.2417602539062,
+  "primero_alternativa": 591.5499267578125
+}

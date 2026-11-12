@@ -47,6 +47,7 @@ class ResultadoDQN:
     sincronizaciones: int
     horizonte: int
     profile_weight: float
+    experiencias: pd.DataFrame
 
 
 def entrenar_dqn(bloques, *, episodios=600, gamma=.99, epsilon_final=.05,
@@ -60,11 +61,12 @@ def entrenar_dqn(bloques, *, episodios=600, gamma=.99, epsilon_final=.05,
     target.load_state_dict(net.state_dict())
     optim = torch.optim.Adam(net.parameters(), lr=.001)
     memoria = deque(maxlen=8000)
-    log, losses = [], []
+    log, losses, experiencias = [], [], []
     updates = syncs = 0
     H = len(bloques[0])
     for ep in range(episodios):
-        frame = bloques[int(rng.integers(len(bloques)))].reset_index(drop=True)
+        bloque_id = int(rng.integers(len(bloques)))
+        frame = bloques[bloque_id].reset_index(drop=True)
         eps = .9 + (epsilon_final - .9) * ep / max(episodios - 1, 1)
         pos, total = 0, 0.
         for t, row in frame.iterrows():
@@ -72,7 +74,8 @@ def entrenar_dqn(bloques, *, episodios=600, gamma=.99, epsilon_final=.05,
             valid = indices_validos(pos)
             with torch.no_grad():
                 q = net(torch.from_numpy(x)).numpy()
-            a = int(rng.choice(valid)) if rng.random() < eps else valid[int(np.argmax(q[valid]))]
+            exploracion = bool(rng.random() < eps)
+            a = int(rng.choice(valid)) if exploracion else valid[int(np.argmax(q[valid]))]
             action = ACCIONES[a]
             reward = calcular_recompensa_con_perfiles(posicion=pos, accion=action,
                 precio_t=float(row.precio_t), precio_t1=float(row.precio_t1),
@@ -80,6 +83,18 @@ def entrenar_dqn(bloques, *, episodios=600, gamma=.99, epsilon_final=.05,
                 profile_weight=profile_weight)['reward_final'] * 1e4
             next_pos = posicion_despues(pos, action)
             done = t == H - 1
+            estado = (row.regimen_mercado, row.senal_wallets, pos)
+            if done:
+                siguiente = None  # Fin del episodio; no se inventa un estado posterior.
+            else:
+                nxt = frame.iloc[t+1]
+                siguiente = (nxt.regimen_mercado, nxt.senal_wallets, next_pos)
+            experiencias.append({'episodio': ep+1, 'bloque': bloque_id+1, 't': t,
+                'as_of': row.as_of, 'estado': estado, 'accion': action,
+                'posicion_antes': pos, 'posicion_despues': next_pos,
+                'estado_siguiente': siguiente, 'done': done, 'epsilon': eps,
+                'exploracion': exploracion, 'recompensa_pb': reward,
+                'Q_BUY_POL': float(q[0]), 'Q_SELL_POL': float(q[1]), 'Q_HOLD': float(q[2])})
             nx = np.zeros(9, np.float32) if done else vector_estado(frame.iloc[t+1], next_pos, t+1, H)
             memoria.append((x, a, reward, nx, float(done), next_pos))
             pos, total = next_pos, total + reward
@@ -106,7 +121,7 @@ def entrenar_dqn(bloques, *, episodios=600, gamma=.99, epsilon_final=.05,
         log.append({'episodio': ep+1, 'epsilon': eps, 'recompensa_pb': total,
                     'memoria': len(memoria)})
     net.eval(); target.eval()
-    return ResultadoDQN(net, target, memoria, pd.DataFrame(log), losses, updates, syncs, H, profile_weight)
+    return ResultadoDQN(net, target, memoria, pd.DataFrame(log), losses, updates, syncs, H, profile_weight, pd.DataFrame(experiencias))
 
 
 def auditar(modelo, gamma=.99):
