@@ -124,30 +124,3 @@ y=\DQNRecompensa+0.99(\DQNMaxFuturo)
 \item La última hora incompleta se excluye; curvas con el mismo capital se superponen.
 \end{itemize}
 \end{frame}
-
-\begin{frame}{Sensibilidad: retirar la señal de wallets}
-\centering
-\includegraphics[width=.88\textwidth,height=.55\textheight,keepaspectratio]{dqn_estres}
-\begin{itemize}\small
-\item En el mismo test sustituimos la señal y los apoyos por neutral, sin reentrenar.
-\item El resultado muestra sensibilidad a una intervención; no es otro test independiente.
-\item Cambio DQN: $\varepsilon_{\mathrm{final}}=0.05$ y $0.30$ obtuvieron \DQNValidacionA\% y \DQNValidacionB\% en validación; se eligió \DQNEpsilon{} según ese resultado.
-\end{itemize}
-\end{frame}
-
-\begin{frame}{Limitaciones y pasos siguientes}
-\begin{columns}[T,onlytextwidth]
-\column{.48\textwidth}
-\begin{block}{Datos y evaluación}
-\small Un solo snapshot cercano a 24 horas. Train, validación y test usan bloques de 4 horas; el test es demasiado corto para inferir desempeño futuro. Faltan auditoría temporal del ledger, slippage y profundidad.
-\end{block}
-\column{.48\textwidth}
-\begin{block}{Modelos}
-\small Bellman depende de transiciones escasas; Q tabular tiene estados sin visitas; DQN puede sobreajustar y generalizar mal. La pérdida Huber no equivale a rentabilidad.
-\end{block}
-\end{columns}
-\vspace{.5em}
-\begin{alertblock}{Siguiente comprobación}
-\small Ampliar snapshots, construir períodos independientes de 24 horas y repetir validación temporal sin ajustar al test.
-\end{alertblock}
-\end{frame}
